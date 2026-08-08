@@ -3,377 +3,341 @@
 import React, { useEffect, useState, use } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft,
   User,
   Phone,
-  Calendar,
-  CreditCard,
-  Printer,
-  Users,
-  CheckCircle2,
-  Clock,
-  AlertTriangle,
-  Receipt,
   MessageSquare,
+  CalendarCheck,
+  Award,
+  AlertTriangle,
+  ArrowLeft,
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  XCircle,
+  Sparkles,
 } from "lucide-react";
-import { StatusBadge } from "@/components/shared/StatusBadge";
-import { WhatsAppButton } from "@/components/shared/WhatsAppButton";
-import { CollectFeeModal } from "@/components/students/CollectFeeModal";
-import { ReceiptModal } from "@/components/payments/ReceiptModal";
-import { Student, Payment, DynamicDueResult } from "@/types";
-import { getMonthName } from "@/lib/due-calculator";
+import { Student } from "@/types";
+import { getContactMobile, generateTelLink } from "@/lib/phone";
 import { generateWhatsAppLink } from "@/lib/whatsapp";
+import { getDaysInMonth, formatKolkataShortDate } from "@/lib/date";
 
-export default function StudentDetailsPage({
+export default function StudentProfilePage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const [data, setData] = useState<any>(null);
+
+  const [studentData, setStudentData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [viewMonth, setViewMonth] = useState<number>(new Date().getMonth() + 1);
+  const [viewYear, setViewYear] = useState<number>(new Date().getFullYear());
 
-  // Modals
-  const [isCollectFeeOpen, setIsCollectFeeOpen] = useState(false);
-  const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null);
-
-  const fetchStudentData = async () => {
+  const fetchProfile = async () => {
     try {
+      setLoading(true);
       const res = await fetch(`/api/students/${id}`);
       const json = await res.json();
       if (res.ok) {
-        setData(json);
+        setStudentData(json);
       }
     } catch (err) {
-      console.error("Student detail fetch error:", err);
+      console.error("Fetch profile error:", err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchStudentData();
+    fetchProfile();
   }, [id]);
 
   if (loading) {
     return (
-      <div className="space-y-4 animate-pulse">
-        <div className="h-10 w-32 bg-card rounded-2xl" />
-        <div className="h-48 bg-card rounded-3xl" />
-        <div className="h-64 bg-card rounded-3xl" />
+      <div className="space-y-6 animate-pulse p-2">
+        <div className="h-44 bg-card border border-border rounded-3xl" />
+        <div className="h-64 bg-card border border-border rounded-3xl" />
       </div>
     );
   }
 
-  if (!data || !data.student) {
+  if (!studentData || !studentData.student) {
     return (
-      <div className="text-center py-12">
-        <p className="font-bold text-lg">Student not found</p>
-        <Link href="/students" className="text-indigo-600 font-semibold text-xs hover:underline mt-2 block">
-          Back to Students
+      <div className="text-center py-12 border border-dashed border-border rounded-3xl bg-card">
+        <p className="font-extrabold text-base text-foreground">Student profile not found</p>
+        <Link href="/students" className="text-xs text-indigo-600 font-bold hover:underline mt-2 inline-block">
+          ← Back to Students
         </Link>
       </div>
     );
   }
 
-  const student: Student = data.student;
-  const payments: Payment[] = data.payments || [];
-  const dueInfo: DynamicDueResult = data.dueInfo;
-  const siblings: any[] = data.siblings || [];
+  const { student, summary, attendanceRecords = [] }: { student: Student; summary: any; attendanceRecords: any[] } =
+    studentData;
 
-  // Construct sibling dues for WhatsApp link
-  const allFamilyDues = [
-    { student, dueInfo },
-    ...siblings.map((sib: any) => ({ student: sib.student, dueInfo: sib.dueInfo })),
-  ];
-  const combinedWhatsAppUrl = generateWhatsAppLink(student.parentMobile, allFamilyDues);
+  const contactMobile = getContactMobile(student);
+  const telLink = generateTelLink(contactMobile);
+  const waUrl = generateWhatsAppLink(contactMobile, student.name);
+
+  // Calendar matrix calculation for viewMonth & viewYear
+  const monthDays = getDaysInMonth(viewYear, viewMonth);
+  const recordMap = new Map<string, string>();
+  attendanceRecords.forEach((rec: any) => {
+    recordMap.set(rec.date, rec.status);
+  });
 
   return (
-    <div className="space-y-6">
-      {/* Back Button */}
-      <div>
-        <Link
-          href="/students"
-          className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Students Directory</span>
-        </Link>
-      </div>
+    <div className="space-y-6 pb-16">
+      {/* Top Back Navigation */}
+      <Link
+        href="/students"
+        className="inline-flex items-center gap-1.5 text-xs font-extrabold text-muted-foreground hover:text-foreground transition-all"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        <span>Back to Student Directory</span>
+      </Link>
 
-      {/* Student Main Profile Header */}
-      <div className="bg-card border border-border p-6 rounded-3xl shadow-soft flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div className="flex items-start gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-black text-xl shadow-md shadow-indigo-500/20">
-            {student.name.charAt(0)}
-          </div>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-xl font-extrabold tracking-tight">{student.name}</h1>
-              <StatusBadge status={dueInfo.status} size="sm" />
+      {/* Main Student Info Card */}
+      <div className="bg-card border border-border rounded-3xl p-6 shadow-soft space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-3xl bg-indigo-600 text-white font-black text-xl flex items-center justify-center shadow-md shadow-indigo-600/30">
+              {student.name.substring(0, 2).toUpperCase()}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              ID: <span className="font-bold text-foreground">{student.studentId}</span> • Class{" "}
-              <span className="font-bold text-foreground">{student.class}</span>
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Admission Date: {student.admissionDate ? student.admissionDate.split("T")[0] : "-"}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setIsCollectFeeOpen(true)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all active:scale-95"
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Collect Fee</span>
-          </button>
-
-          <a
-            href={combinedWhatsAppUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all active:scale-95"
-          >
-            <MessageSquare className="w-4 h-4 fill-current" />
-            <span>Send WhatsApp Reminder</span>
-          </a>
-        </div>
-      </div>
-
-      {/* Details & Due Breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Student Information Card */}
-        <div className="bg-card border border-border p-5 rounded-3xl shadow-soft space-y-4">
-          <h2 className="font-bold text-sm text-foreground border-b border-border pb-2">
-            Student Information
-          </h2>
-
-          <div className="space-y-3 text-xs">
             <div>
-              <span className="text-muted-foreground block text-[10px]">Monthly Tuition Fee:</span>
-              <span className="font-extrabold text-sm text-indigo-600 dark:text-indigo-400">
-                ₹{student.monthlyFee} / month
-              </span>
-            </div>
-
-            <div>
-              <span className="text-muted-foreground block text-[10px]">Parent / Guardian Name:</span>
-              <span className="font-bold text-foreground">{student.parentName}</span>
-            </div>
-
-            <div>
-              <span className="text-muted-foreground block text-[10px]">Parent Mobile Number:</span>
-              <span className="font-bold text-foreground">{student.parentMobile}</span>
-            </div>
-
-            {student.alternateMobile && (
-              <div>
-                <span className="text-muted-foreground block text-[10px]">Alternate Contact:</span>
-                <span className="font-bold text-foreground">{student.alternateMobile}</span>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-black text-foreground">{student.name}</h1>
+                <span className="px-3 py-1 rounded-full bg-indigo-600 text-white text-xs font-black">
+                  Batch {student.batch || "Unassigned"}
+                </span>
               </div>
-            )}
-
-            {student.address && (
-              <div>
-                <span className="text-muted-foreground block text-[10px]">Address:</span>
-                <span className="font-medium text-foreground">{student.address}</span>
-              </div>
-            )}
-
-            {student.remarks && (
-              <div>
-                <span className="text-muted-foreground block text-[10px]">Remarks:</span>
-                <span className="font-medium text-foreground">{student.remarks}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Dynamic Pending Fee Status Card */}
-        <div className="bg-card border border-border p-5 rounded-3xl shadow-soft space-y-4 md:col-span-2">
-          <div className="flex items-center justify-between border-b border-border pb-2">
-            <h2 className="font-bold text-sm text-foreground">Dynamic Due Status</h2>
-            <StatusBadge status={dueInfo.status} size="sm" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-3 rounded-2xl bg-muted/40 border border-border/60">
-              <span className="text-muted-foreground text-[10px] block font-semibold">
-                Total Pending Months
-              </span>
-              <span className="text-xl font-extrabold text-foreground">{dueInfo.totalDueMonths}</span>
-            </div>
-
-            <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/20">
-              <span className="text-rose-600 dark:text-rose-400 text-[10px] block font-semibold">
-                Total Pending Amount
-              </span>
-              <span className="text-xl font-black text-rose-600 dark:text-rose-400">
-                ₹{dueInfo.totalPendingAmount}
-              </span>
+              <p className="text-xs text-muted-foreground font-medium mt-0.5">
+                ID: <strong>{student.studentId}</strong> • Class: <strong>{student.class}</strong> • Status:{" "}
+                <strong className={student.status === "Active" ? "text-emerald-600" : "text-muted-foreground"}>
+                  {student.status}
+                </strong>
+              </p>
             </div>
           </div>
 
-          {/* Pending Month Breakdown List */}
-          <div>
-            <h3 className="text-xs font-bold text-muted-foreground mb-2">Unpaid Pending Months:</h3>
-            {dueInfo.pendingMonths.length === 0 ? (
-              <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>All tuition fees up to date!</span>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {dueInfo.pendingMonths.map((pm) => (
-                  <div
-                    key={`${pm.year}-${pm.month}`}
-                    className="flex items-center justify-between p-3 rounded-2xl bg-muted/40 border border-border/60 text-xs"
-                  >
-                    <div>
-                      <span className="font-bold text-foreground">{pm.monthName}</span>
-                      <span className="text-[10px] text-muted-foreground block">
-                        Due Date: {pm.dueDate}
-                      </span>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="font-extrabold text-rose-600 dark:text-rose-400 block">
-                        ₹{pm.amount}
-                      </span>
-                      {pm.isDueToday ? (
-                        <span className="text-[10px] font-bold text-amber-500">Due Today</span>
-                      ) : (
-                        <span className="text-[10px] font-bold text-rose-500">Overdue</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Sibling Group Family Card */}
-      {siblings.length > 0 && (
-        <div className="bg-card border border-border p-5 rounded-3xl shadow-soft space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-bold text-sm flex items-center gap-2">
-              <Users className="w-4 h-4 text-indigo-500" />
-              <span>Family Siblings (Same Mobile: {student.parentMobile})</span>
-            </h2>
-            <span className="text-xs text-muted-foreground font-medium">
-              Auto-grouped into 1 WhatsApp reminder
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            {siblings.map((sib: any) => (
-              <div
-                key={sib.student._id}
-                className="p-3 rounded-2xl bg-muted/30 border border-border/60 flex items-center justify-between"
+          {/* Direct Action Contact Buttons */}
+          <div className="flex items-center gap-2">
+            {telLink && (
+              <a
+                href={telLink}
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-2xl shadow-sm transition-all active:scale-95"
               >
-                <div>
-                  <Link
-                    href={`/students/${sib.student._id}`}
-                    className="font-bold text-xs hover:text-indigo-600"
-                  >
-                    {sib.student.name}
-                  </Link>
-                  <p className="text-[10px] text-muted-foreground">
-                    Class {sib.student.class} • Fee: ₹{sib.student.monthlyFee}
-                  </p>
-                </div>
+                <Phone className="w-4 h-4" />
+                <span>Call Parent</span>
+              </a>
+            )}
 
-                <div className="text-right">
-                  <StatusBadge status={sib.dueInfo.status} size="sm" />
-                  <p className="text-[10px] text-rose-500 font-bold mt-0.5">
-                    Due: ₹{sib.dueInfo.totalPendingAmount}
-                  </p>
-                </div>
-              </div>
-            ))}
+            {waUrl && (
+              <a
+                href={waUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-2xl shadow-sm transition-all active:scale-95"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>WhatsApp Parent</span>
+              </a>
+            )}
           </div>
         </div>
-      )}
 
-      {/* Payment History Ledger */}
-      <div className="bg-card border border-border p-5 rounded-3xl shadow-soft space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-extrabold text-base flex items-center gap-2">
-            <Receipt className="w-4.5 h-4.5 text-indigo-500" />
-            <span>Payment History Ledger</span>
+        {/* Parent Details Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-3 border-t border-border/60 text-xs">
+          <div>
+            <span className="text-muted-foreground block text-[10px] uppercase font-bold">Parent Name</span>
+            <span className="font-extrabold text-foreground">{student.parentName}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[10px] uppercase font-bold">Parent Mobile</span>
+            <span className="font-extrabold text-foreground">{student.parentMobile}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[10px] uppercase font-bold">Alternate Mobile</span>
+            <span className="font-extrabold text-foreground">{student.alternateMobile || "None"}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[10px] uppercase font-bold">Admission Date</span>
+            <span className="font-extrabold text-foreground">{student.admissionDate || "N/A"}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ATTENDANCE SUMMARY STATS & STREAK BADGES */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        {/* Overall Percentage */}
+        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft">
+          <span className="text-xs font-bold text-muted-foreground uppercase">Overall Attendance</span>
+          <div className="text-3xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
+            {summary.percentage}%
+          </div>
+          <p className="text-[11px] text-muted-foreground font-medium mt-1">
+            {summary.presentCount} Present / {summary.totalConducted} Conducted
+          </p>
+        </div>
+
+        {/* Current Month Percentage */}
+        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft">
+          <span className="text-xs font-bold text-muted-foreground uppercase">This Month Rate</span>
+          <div className="text-3xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+            {summary.currentMonthPercentage}%
+          </div>
+          <p className="text-[11px] text-muted-foreground font-medium mt-1">
+            {summary.currentMonthPresent} Present / {summary.currentMonthConducted} Conducted
+          </p>
+        </div>
+
+        {/* Total Absences */}
+        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft">
+          <span className="text-xs font-bold text-muted-foreground uppercase">Total Absences</span>
+          <div className="text-3xl font-black text-rose-600 dark:text-rose-400 mt-1">
+            {summary.absentCount}
+          </div>
+          <p className="text-[11px] text-muted-foreground font-medium mt-1">Total missed classes</p>
+        </div>
+
+        {/* Streak Badge */}
+        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft">
+          <span className="text-xs font-bold text-muted-foreground uppercase">Current Streak</span>
+          <div className="mt-1">
+            {summary.consecutiveAbsences > 0 ? (
+              <span className="inline-flex items-center gap-1 text-sm font-black text-rose-600 dark:text-rose-400 bg-rose-500/10 px-3 py-1 rounded-2xl border border-rose-500/20">
+                <AlertTriangle className="w-4 h-4" /> {summary.consecutiveAbsences} Consecutive Absences
+              </span>
+            ) : summary.consecutivePresence > 0 ? (
+              <span className="inline-flex items-center gap-1 text-sm font-black text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-2xl border border-emerald-500/20">
+                <Sparkles className="w-4 h-4" /> 🔥 {summary.consecutivePresence} Present Streak
+              </span>
+            ) : (
+              <span className="text-xs font-bold text-muted-foreground">No recent streak</span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground font-medium mt-1">Consecutive trend</p>
+        </div>
+      </div>
+
+      {/* INTERACTIVE ATTENDANCE CALENDAR VIEW */}
+      <div className="bg-card border border-border rounded-3xl p-6 shadow-soft space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h2 className="text-lg font-black text-foreground flex items-center gap-2">
+            <CalendarIcon className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <span>Attendance Calendar View</span>
           </h2>
-          <span className="text-xs text-muted-foreground font-semibold">
-            {payments.length} payment(s) recorded
+
+          <div className="flex items-center gap-2">
+            <select
+              value={viewMonth}
+              onChange={(e) => setViewMonth(parseInt(e.target.value))}
+              className="px-3 py-1.5 text-xs font-bold bg-muted border border-border rounded-xl"
+            >
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((m) => (
+                <option key={m} value={m}>
+                  {new Date(2026, m - 1, 1).toLocaleString("en-IN", { month: "long" })}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={viewYear}
+              onChange={(e) => setViewYear(parseInt(e.target.value))}
+              className="px-3 py-1.5 text-xs font-bold bg-muted border border-border rounded-xl"
+            >
+              {[2025, 2026, 2027].map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Legend Bar */}
+        <div className="flex items-center gap-4 text-xs font-extrabold pt-1">
+          <span className="flex items-center gap-1 text-emerald-600">
+            <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /> Present
+          </span>
+          <span className="flex items-center gap-1 text-rose-600">
+            <span className="w-3 h-3 rounded-full bg-rose-600 inline-block" /> Absent
+          </span>
+          <span className="flex items-center gap-1 text-muted-foreground">
+            <span className="w-3 h-3 rounded-full bg-muted border border-border inline-block" /> No Class
           </span>
         </div>
 
-        {payments.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-2xl text-xs">
-            No payments collected yet for this student.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-border bg-muted/40 font-semibold text-muted-foreground uppercase tracking-wider">
-                  <th className="p-3">Receipt No</th>
-                  <th className="p-3">Paid Date</th>
-                  <th className="p-3">Fee Month</th>
-                  <th className="p-3">Amount</th>
-                  <th className="p-3">Mode</th>
-                  <th className="p-3 text-right">Receipt</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {payments.map((p) => (
-                  <tr key={p._id} className="hover:bg-muted/30 transition-colors">
-                    <td className="p-3 font-bold text-foreground">{p.receiptNo}</td>
-                    <td className="p-3 text-muted-foreground">{p.paymentDate}</td>
-                    <td className="p-3 font-semibold text-foreground">
-                      {getMonthName(p.month)} {p.year}
-                    </td>
-                    <td className="p-3 font-extrabold text-emerald-600 dark:text-emerald-400">
-                      ₹{p.amount}
-                    </td>
-                    <td className="p-3 font-medium text-foreground">{p.mode}</td>
-                    <td className="p-3 text-right">
-                      <button
-                        onClick={() => setReceiptPayment(p)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-500/10 text-indigo-600 font-semibold hover:bg-indigo-500/20 transition-all"
-                      >
-                        <Printer className="w-3.5 h-3.5" />
-                        <span>Print</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {/* Calendar Grid */}
+        <div className="grid grid-cols-7 gap-2 pt-2 text-center">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+            <div key={day} className="text-[10px] font-black uppercase text-muted-foreground py-1">
+              {day}
+            </div>
+          ))}
+
+          {monthDays.map((dStr) => {
+            const status = recordMap.get(dStr);
+            const dayNum = parseInt(dStr.split("-")[2], 10);
+
+            return (
+              <div
+                key={dStr}
+                className={`p-2.5 rounded-2xl text-xs font-black transition-all flex flex-col items-center justify-center border ${
+                  status === "present"
+                    ? "bg-emerald-500 text-white border-emerald-600 shadow-xs"
+                    : status === "absent"
+                    ? "bg-rose-600 text-white border-rose-700 shadow-xs"
+                    : "bg-muted/40 text-muted-foreground border-border/50"
+                }`}
+                title={`${dStr}: ${status || "No class"}`}
+              >
+                <span>{dayNum}</span>
+                {status && (
+                  <span className="text-[9px] uppercase font-extrabold mt-0.5">
+                    {status === "present" ? "P" : "A"}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Modals */}
-      <CollectFeeModal
-        isOpen={isCollectFeeOpen}
-        onClose={() => setIsCollectFeeOpen(false)}
-        onSuccess={(payment) => {
-          fetchStudentData();
-          setReceiptPayment(payment);
-        }}
-        student={student}
-      />
+      {/* FULL ATTENDANCE HISTORY LOG TABLE */}
+      <div className="bg-card border border-border rounded-3xl p-6 shadow-soft space-y-4">
+        <h2 className="text-lg font-black text-foreground">Complete Attendance Logs</h2>
 
-      <ReceiptModal
-        isOpen={!!receiptPayment}
-        onClose={() => setReceiptPayment(null)}
-        payment={receiptPayment}
-      />
+        <div className="divide-y divide-border border border-border rounded-2xl overflow-hidden">
+          {attendanceRecords.length === 0 ? (
+            <p className="text-xs text-muted-foreground p-6 text-center">
+              No attendance logs recorded for this student yet.
+            </p>
+          ) : (
+            attendanceRecords.map((rec: any) => (
+              <div key={rec._id} className="p-3.5 flex items-center justify-between text-xs">
+                <div>
+                  <span className="font-extrabold text-foreground">{formatKolkataShortDate(rec.date)}</span>
+                  <span className="ml-2 px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 font-bold">
+                    {rec.batch} Batch
+                  </span>
+                </div>
+
+                <div>
+                  {rec.status === "present" ? (
+                    <span className="px-3 py-1 rounded-xl bg-emerald-500/10 text-emerald-600 font-black">
+                      🟢 Present
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-xl bg-rose-500/10 text-rose-600 font-black">
+                      🔴 Absent
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }

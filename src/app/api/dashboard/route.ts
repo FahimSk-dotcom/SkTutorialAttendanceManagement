@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { getAuthenticatedAdmin } from "@/lib/auth";
-import { calculateStudentDueStatus } from "@/lib/due-calculator";
-import { Student, Payment } from "@/types";
+import { getKolkataToday, formatKolkataFullDate, getKolkataGreeting } from "@/lib/date";
+import { getContactMobile, generateTelLink } from "@/lib/phone";
+import { generateWhatsAppLink, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/whatsapp";
+import { AbsenteeInfo, BatchStats } from "@/types";
+import { DEFAULT_SETTINGS } from "@/app/api/settings/route";
 
 export async function GET() {
   try {
@@ -12,161 +15,225 @@ export async function GET() {
     }
 
     const db = await getDb();
-    const todayStr = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
+    const todayStr = getKolkataToday();
+    const formattedDate = formatKolkataFullDate(todayStr);
+    const greeting = getKolkataGreeting();
 
-    // Fetch active students
-    const activeStudentsRaw = await db.collection("students").find({ status: "Active" }).toArray();
-    const totalActiveStudents = activeStudentsRaw.length;
+    // 1. Fetch App Settings & Class-to-Batch Mappings
+    const settingsDoc = await db
+      .collection("attendance")
+      .findOne({ docType: "settings", key: "app_settings" });
 
-    // Fetch all students for map
-    const allStudentsRaw = await db.collection("students").find({}).toArray();
-    const studentMap: Record<string, any> = {};
-    allStudentsRaw.forEach((s: any) => {
-      studentMap[s.studentId] = s;
-    });
+    const teacherName = settingsDoc?.teacherName || "Prof. Fahim Sir";
+    const instituteName = settingsDoc?.instituteName || "SK Tutorials";
+    const lowThreshold = settingsDoc?.attendanceThreshold || 75;
+    const alertConsecutiveThreshold = settingsDoc?.consecutiveAbsenceThreshold || 3;
+    const waTemplate = settingsDoc?.whatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE;
 
-    // Fetch all payments
-    const allPaymentsRaw = await db.collection("payments").find({}).sort({ paymentDate: -1, createdAt: -1 }).toArray();
+    const batch1Classes: string[] = settingsDoc?.batch1Classes || DEFAULT_SETTINGS.batch1Classes;
+    const batch2Classes: string[] = settingsDoc?.batch2Classes || DEFAULT_SETTINGS.batch2Classes;
 
-    const paymentsByStudent: Record<string, Payment[]> = {};
-    let todaysCollection = 0;
-    let currentMonthCollection = 0;
+    // 2. Fetch Active Students & Calculate Effective Batch by Class Mapping
+    const rawActiveStudents = await db
+      .collection("students")
+      .find({ status: "Active" })
+      .toArray();
 
-    const monthlyCollectionMap: Record<string, number> = {}; // "Jan", "Feb" etc
-
-    allPaymentsRaw.forEach((p: any) => {
-      if (!paymentsByStudent[p.studentId]) {
-        paymentsByStudent[p.studentId] = [];
-      }
-      paymentsByStudent[p.studentId].push({
-        _id: p._id.toString(),
-        studentId: p.studentId,
-        paymentDate: p.paymentDate,
-        month: p.month,
-        year: p.year,
-        amount: p.amount,
-        mode: p.mode,
-        receiptNo: p.receiptNo,
-        collectedBy: p.collectedBy,
-      });
-
-      // Todays collection
-      if (p.paymentDate === todayStr) {
-        todaysCollection += p.amount;
-      }
-
-      // Current month collection
-      if (p.year === currentYear && p.month === currentMonth) {
-        currentMonthCollection += p.amount;
-      }
-
-      // Chart month map for current year
-      if (p.year === currentYear) {
-        const monthKey = new Date(p.year, p.month - 1, 1).toLocaleString("en-US", { month: "short" });
-        monthlyCollectionMap[monthKey] = (monthlyCollectionMap[monthKey] || 0) + p.amount;
-      }
-    });
-
-    // Dynamic Due Calculations for Active Students
-    let totalPendingAmount = 0;
-    let studentsWithDueCount = 0;
-    let studentsDueTodayCount = 0;
-    const dueStudentsList: any[] = [];
-
-    activeStudentsRaw.forEach((s: any) => {
-      const student: Student = {
-        _id: s._id.toString(),
-        studentId: s.studentId,
-        name: s.name,
-        class: s.class,
-        batch: s.batch,
-        monthlyFee: s.monthlyFee,
-        parentName: s.parentName,
-        parentMobile: s.parentMobile,
-        admissionDate: s.admissionDate,
-        status: s.status,
-      };
-
-      const studentPayments = paymentsByStudent[s.studentId] || [];
-      const dueInfo = calculateStudentDueStatus(student, studentPayments, now);
-
-      if (dueInfo.status === "OVERDUE" || dueInfo.status === "DUE_TODAY") {
-        studentsWithDueCount++;
-        totalPendingAmount += dueInfo.totalPendingAmount;
-
-        if (dueInfo.status === "DUE_TODAY") {
-          studentsDueTodayCount++;
+    const activeStudents = rawActiveStudents.map((st: any) => {
+      let effectiveBatch = st.batch;
+      if (!effectiveBatch) {
+        if (batch1Classes.includes(st.class)) {
+          effectiveBatch = "5-7";
+        } else if (batch2Classes.includes(st.class)) {
+          effectiveBatch = "7-9";
         }
+      }
+      return {
+        ...st,
+        batch: effectiveBatch || "",
+      };
+    });
 
-        dueStudentsList.push({
+    const batch57Students = activeStudents.filter((s: any) => s.batch === "5-7");
+    const batch79Students = activeStudents.filter((s: any) => s.batch === "7-9");
+
+    // 3. Fetch Holidays for today
+    const todaysHolidays = await db
+      .collection("attendance")
+      .find({ docType: "holiday", date: todayStr })
+      .toArray();
+
+    const isHoliday57 = todaysHolidays.some(
+      (h: any) => h.batch === "ALL" || h.batch === "5-7"
+    );
+    const isHoliday79 = todaysHolidays.some(
+      (h: any) => h.batch === "ALL" || h.batch === "7-9"
+    );
+
+    // 4. Fetch Today's Attendance Records
+    const todaysAttendance = await db
+      .collection("attendance")
+      .find({ docType: "attendance", date: todayStr })
+      .toArray();
+
+    const records57 = todaysAttendance.filter((r: any) => r.batch === "5-7");
+    const records79 = todaysAttendance.filter((r: any) => r.batch === "7-9");
+
+    // Batch 5-7 Stats
+    const p57 = records57.filter((r: any) => r.status === "present").length;
+    const a57 = records57.filter((r: any) => r.status === "absent").length;
+    const total57 = batch57Students.length;
+    const pct57 = records57.length > 0 ? Math.round((p57 / records57.length) * 100) : 0;
+
+    const stats57: BatchStats = {
+      batch: "5-7",
+      batchName: settingsDoc?.batch1Name || "5–7",
+      batchTiming: settingsDoc?.batch1Timing || "5:00 PM – 7:00 PM",
+      assignedClasses: batch1Classes,
+      totalStudents: total57,
+      present: p57,
+      absent: a57,
+      attendancePercentage: pct57,
+      status: records57.length > 0 ? "Completed" : "Pending",
+      isHoliday: isHoliday57,
+      holidayReason: isHoliday57 ? todaysHolidays[0]?.reason : undefined,
+    };
+
+    // Batch 7-9 Stats
+    const p79 = records79.filter((r: any) => r.status === "present").length;
+    const a79 = records79.filter((r: any) => r.status === "absent").length;
+    const total79 = batch79Students.length;
+    const pct79 = records79.length > 0 ? Math.round((p79 / records79.length) * 100) : 0;
+
+    const stats79: BatchStats = {
+      batch: "7-9",
+      batchName: settingsDoc?.batch2Name || "7–9",
+      batchTiming: settingsDoc?.batch2Timing || "7:00 PM – 9:00 PM",
+      assignedClasses: batch2Classes,
+      totalStudents: total79,
+      present: p79,
+      absent: a79,
+      attendancePercentage: pct79,
+      status: records79.length > 0 ? "Completed" : "Pending",
+      isHoliday: isHoliday79,
+      holidayReason: isHoliday79 ? todaysHolidays[0]?.reason : undefined,
+    };
+
+    // 5. Today's Absentees list
+    const absentStudentIds = todaysAttendance
+      .filter((r: any) => r.status === "absent")
+      .map((r: any) => r.studentId);
+
+    const allStudentsMap = new Map<string, any>(
+      activeStudents.map((s: any) => [s.studentId, s])
+    );
+
+    // Fetch past attendance for consecutive absence calculations
+    const allPastAttendance = await db
+      .collection("attendance")
+      .find({ docType: "attendance", date: { $lte: todayStr } })
+      .sort({ date: -1 })
+      .toArray();
+
+    const studentPastRecordsMap = new Map<string, any[]>();
+    for (const rec of allPastAttendance) {
+      if (!studentPastRecordsMap.has(rec.studentId)) {
+        studentPastRecordsMap.set(rec.studentId, []);
+      }
+      studentPastRecordsMap.get(rec.studentId)!.push(rec);
+    }
+
+    const todaysAbsentees: AbsenteeInfo[] = [];
+
+    for (const studentId of absentStudentIds) {
+      const student = allStudentsMap.get(studentId);
+      if (!student) continue;
+
+      const contactMobile = getContactMobile(student);
+      const telLink = generateTelLink(contactMobile);
+      const whatsappUrl = generateWhatsAppLink(contactMobile, student.name, waTemplate);
+
+      // Compute consecutive absences
+      let consecutive = 0;
+      const past = studentPastRecordsMap.get(studentId) || [];
+      for (const rec of past) {
+        if (rec.status === "absent") consecutive++;
+        else break;
+      }
+
+      todaysAbsentees.push({
+        studentId: student.studentId,
+        name: student.name,
+        class: student.class,
+        batch: student.batch || "5-7",
+        parentName: student.parentName,
+        parentMobile: student.parentMobile,
+        alternateMobile: student.alternateMobile,
+        contactMobile,
+        whatsappUrl,
+        telLink,
+        consecutiveAbsences: consecutive,
+      });
+    }
+
+    // 6. Consecutive Absence & Low Attendance Alerts
+    const consecutiveAbsenceAlerts: any[] = [];
+    const lowAttendanceAlerts: any[] = [];
+
+    for (const student of activeStudents) {
+      const past = studentPastRecordsMap.get(student.studentId) || [];
+      if (past.length === 0) continue;
+
+      let cons = 0;
+      for (const rec of past) {
+        if (rec.status === "absent") cons++;
+        else break;
+      }
+
+      if (cons >= alertConsecutiveThreshold) {
+        const contactMobile = getContactMobile(student);
+        consecutiveAbsenceAlerts.push({
           student,
-          dueInfo,
+          consecutiveAbsences: cons,
+          contactMobile,
+          telLink: generateTelLink(contactMobile),
+          whatsappUrl: generateWhatsAppLink(contactMobile, student.name, waTemplate),
         });
       }
-    });
 
-    // Fetch Expenses (Today, Month, Year)
-    const allExpensesRaw = await db.collection("expenses").find({}).toArray();
-    let todaysExpense = 0;
-    let monthlyExpense = 0;
-    let yearlyExpense = 0;
+      const totalCond = past.length;
+      const presCount = past.filter((r) => r.status === "present").length;
+      const pct = totalCond > 0 ? Math.round((presCount / totalCond) * 100) : 100;
 
-    allExpensesRaw.forEach((e: any) => {
-      const eDate = new Date(e.date);
-      if (e.date === todayStr) {
-        todaysExpense += e.amount;
+      if (totalCond >= 3 && pct < lowThreshold) {
+        const contactMobile = getContactMobile(student);
+        lowAttendanceAlerts.push({
+          student,
+          percentage: pct,
+          totalConducted: totalCond,
+          presentCount: presCount,
+          contactMobile,
+          telLink: generateTelLink(contactMobile),
+          whatsappUrl: generateWhatsAppLink(contactMobile, student.name, waTemplate),
+        });
       }
-      if (eDate.getFullYear() === currentYear && eDate.getMonth() + 1 === currentMonth) {
-        monthlyExpense += e.amount;
-      }
-      if (eDate.getFullYear() === currentYear) {
-        yearlyExpense += e.amount;
-      }
-    });
-
-    // Recent Payments (top 5)
-    const recentPayments = allPaymentsRaw.slice(0, 5).map((p: any) => {
-      const st = studentMap[p.studentId] || { name: "Unknown", class: "-" };
-      return {
-        _id: p._id.toString(),
-        studentId: p.studentId,
-        studentName: st.name,
-        class: st.class,
-        amount: p.amount,
-        mode: p.mode,
-        paymentDate: p.paymentDate,
-        receiptNo: p.receiptNo,
-      };
-    });
-
-    // Format Monthly Collection Chart data
-    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const collectionChartData = monthNames.map((m) => ({
-      month: m,
-      amount: monthlyCollectionMap[m] || 0,
-    }));
+    }
 
     return NextResponse.json({
-      stats: {
-        totalActiveStudents,
-        todaysCollection,
-        currentMonthCollection,
-        totalPendingAmount,
-        studentsWithDueCount,
-        studentsDueTodayCount,
-        todaysExpense,
-        monthlyExpense,
-        yearlyExpense,
-      },
-      recentPayments,
-      dueStudentsList,
-      collectionChartData,
+      todayStr,
+      formattedDate,
+      greeting,
+      teacherName,
+      instituteName,
+      stats57,
+      stats79,
+      todaysAbsentees,
+      consecutiveAbsenceAlerts,
+      lowAttendanceAlerts,
+      totalActiveStudents: activeStudents.length,
     });
   } catch (error: any) {
-    console.error("GET /api/dashboard error:", error);
-    return NextResponse.json({ error: "Failed to fetch dashboard data" }, { status: 500 });
+    console.error("GET dashboard error:", error);
+    return NextResponse.json({ error: "Failed to load dashboard data" }, { status: 500 });
   }
 }

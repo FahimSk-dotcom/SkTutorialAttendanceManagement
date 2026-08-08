@@ -9,8 +9,8 @@ export const loginSchema = z.object({
 export const studentSchema = z.object({
   name: z.string().min(2, "Student name is required"),
   class: z.string().min(1, "Class is required"),
-  batch: z.string().optional(),
-  monthlyFee: z.number().positive("Monthly fee must be positive"),
+  batch: z.enum(["5-7", "7-9"]).optional(),
+  monthlyFee: z.number().positive("Monthly fee must be positive").optional(),
   parentName: z.string().min(2, "Parent name is required"),
   parentMobile: z
     .string()
@@ -26,35 +26,48 @@ export const studentSchema = z.object({
   remarks: z.string().optional(),
 });
 
-export const paymentSchema = z.object({
-  studentId: z.string().min(1, "Student is required"),
-  paymentDate: z.string().min(1, "Payment date is required"),
-  month: z.number().min(1).max(12),
-  year: z.number().min(2020).max(2100),
-  amount: z.number().positive("Amount must be positive"),
-  mode: z.enum(["Cash", "UPI"]),
-  remarks: z.string().optional(),
+export const attendanceItemSchema = z.object({
+  studentId: z.string().min(1, "Student ID is required"),
+  status: z.enum(["present", "absent"]),
 });
 
-export const expenseSchema = z.object({
-  name: z.string().min(2, "Expense name is required"),
-  category: z.string().min(1, "Category is required"),
-  amount: z.number().positive("Amount must be positive"),
-  date: z.string().min(1, "Date is required"),
-  notes: z.string().optional(),
+export const attendanceSubmitSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  batch: z.enum(["5-7", "7-9"]),
+  records: z.array(attendanceItemSchema).min(1, "At least one student record is required"),
 });
 
-export const settingsSchema = z.object({
+export const singleAttendanceUpdateSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  batch: z.enum(["5-7", "7-9"]),
+  studentId: z.string().min(1, "Student ID is required"),
+  status: z.enum(["present", "absent"]),
+});
+
+export const holidaySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
+  batch: z.enum(["ALL", "5-7", "7-9"]).default("ALL"),
+  reason: z.enum(["Holiday", "Vacation", "Personal", "Other"]),
+  description: z.string().optional(),
+});
+
+export const attendanceSettingsSchema = z.object({
   instituteName: z.string().min(2, "Institute name is required"),
-  logoUrl: z.string().optional(),
-  upiId: z.string().optional(),
-  upiQrUrl: z.string().optional(),
-  receiptFooter: z.string().optional(),
-  whatsappTemplate: z.string().optional(),
+  teacherName: z.string().min(2, "Teacher name is required"),
+  batch1Name: z.string().min(1, "Batch 1 name is required"),
+  batch1Timing: z.string().min(1, "Batch 1 timing is required"),
+  batch1Classes: z.array(z.string()).default([]),
+  batch2Name: z.string().min(1, "Batch 2 name is required"),
+  batch2Timing: z.string().min(1, "Batch 2 timing is required"),
+  batch2Classes: z.array(z.string()).default([]),
+  attendanceThreshold: z.number().min(0).max(100),
+  consecutiveAbsenceThreshold: z.number().min(1).max(30),
+  whatsappTemplate: z.string().min(5, "WhatsApp template is required"),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
 export type StudentInput = z.infer<typeof studentSchema>;
-export type PaymentInput = z.infer<typeof paymentSchema>;
-export type ExpenseInput = z.infer<typeof expenseSchema>;
-export type SettingsInput = z.infer<typeof settingsSchema>;
+export type AttendanceSubmitInput = z.infer<typeof attendanceSubmitSchema>;
+export type SingleAttendanceUpdateInput = z.infer<typeof singleAttendanceUpdateSchema>;
+export type HolidayInput = z.infer<typeof holidaySchema>;
+export type AttendanceSettingsInput = z.infer<typeof attendanceSettingsSchema>;

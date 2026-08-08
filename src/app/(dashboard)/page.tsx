@@ -3,37 +3,28 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Users,
-  Wallet,
   CalendarCheck,
+  Users,
   AlertTriangle,
   Clock,
-  UserPlus,
-  CreditCard,
+  Phone,
+  MessageSquare,
   ArrowUpRight,
   TrendingUp,
-  ReceiptText,
-  Plus,
+  CheckCircle2,
+  AlertCircle,
+  RefreshCw,
+  Award,
 } from "lucide-react";
-import { StatusBadge } from "@/components/shared/StatusBadge";
-import { WhatsAppButton } from "@/components/shared/WhatsAppButton";
-import { StudentModal } from "@/components/students/StudentModal";
-import { CollectFeeModal } from "@/components/students/CollectFeeModal";
-import { ReceiptModal } from "@/components/payments/ReceiptModal";
-import { Student, Payment } from "@/types";
+import { AbsenteeInfo, BatchStats } from "@/types";
 
 export default function DashboardPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Modals state
-  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
-  const [isCollectFeeOpen, setIsCollectFeeOpen] = useState(false);
-  const [selectedStudentForCollect, setSelectedStudentForCollect] = useState<Student | null>(null);
-  const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null);
-
   const fetchDashboardData = async () => {
     try {
+      setLoading(true);
       const res = await fetch("/api/dashboard");
       const json = await res.json();
       if (res.ok) {
@@ -52,199 +43,370 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-28 bg-card border border-border rounded-3xl" />
-          ))}
+      <div className="space-y-6 animate-pulse p-2">
+        <div className="h-32 bg-card border border-border rounded-3xl" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="h-44 bg-card border border-border rounded-3xl" />
+          <div className="h-44 bg-card border border-border rounded-3xl" />
         </div>
         <div className="h-64 bg-card border border-border rounded-3xl" />
       </div>
     );
   }
 
-  const stats = data?.stats || {};
-  const recentPayments = data?.recentPayments || [];
-  const dueStudentsList: any[] = data?.dueStudentsList || [];
-  const collectionChartData = data?.collectionChartData || [];
-
-  // Helper to group siblings by parentMobile for consolidated WhatsApp reminders
-  const getFamilyDuesForDashboard = (parentMobile: string) => {
-    const familyItems = dueStudentsList.filter(
-      (item: any) => item.student.parentMobile === parentMobile
-    );
-    return familyItems.map((item: any) => ({
-      student: item.student,
-      dueInfo: item.dueInfo,
-    }));
-  };
+  const {
+    formattedDate,
+    greeting,
+    teacherName,
+    instituteName,
+    stats57,
+    stats79,
+    todaysAbsentees = [],
+    consecutiveAbsenceAlerts = [],
+    lowAttendanceAlerts = [],
+  }: {
+    formattedDate: string;
+    greeting: string;
+    teacherName: string;
+    instituteName: string;
+    stats57: BatchStats;
+    stats79: BatchStats;
+    todaysAbsentees: AbsenteeInfo[];
+    consecutiveAbsenceAlerts: any[];
+    lowAttendanceAlerts: any[];
+  } = data || {};
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner & Quick Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-indigo-600 to-indigo-800 text-white p-6 rounded-3xl shadow-elevated">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-            SK Tutorials Fee Management
-          </h1>
-          <p className="text-xs sm:text-sm text-indigo-100/80 mt-1 font-medium">
-            Welcome back, Admin! Here is today&apos;s tuition overview.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setIsAddStudentOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white text-indigo-700 hover:bg-indigo-50 font-semibold text-xs rounded-2xl shadow-sm transition-all active:scale-95"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Add Student</span>
-          </button>
-
-          <button
-            onClick={() => {
-              if (dueStudentsList.length > 0) {
-                setSelectedStudentForCollect(dueStudentsList[0].student);
-              }
-              setIsCollectFeeOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-xs rounded-2xl shadow-sm transition-all active:scale-95"
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Collect Fee</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Primary KPI Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        {/* Active Students */}
-        <div className="bg-card border border-border p-4 rounded-3xl shadow-soft">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-muted-foreground">Active Students</span>
-            <div className="p-2 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">
-              <Users className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-foreground">
-            {stats.totalActiveStudents || 0}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1 font-medium">Enrolled in institute</p>
-        </div>
-
-        {/* Today's Collection */}
-        <div className="bg-card border border-border p-4 rounded-3xl shadow-soft">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-muted-foreground">Today&apos;s Collection</span>
-            <div className="p-2 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400">
-              <Wallet className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-emerald-600 dark:text-emerald-400">
-            ₹{stats.todaysCollection || 0}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1 font-medium">Collected today</p>
-        </div>
-
-        {/* Current Month Collection */}
-        <div className="bg-card border border-border p-4 rounded-3xl shadow-soft">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-muted-foreground">Month Collection</span>
-            <div className="p-2 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400">
-              <CalendarCheck className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-indigo-600 dark:text-indigo-400">
-            ₹{stats.currentMonthCollection || 0}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1 font-medium">This month&apos;s total</p>
-        </div>
-
-        {/* Total Pending Amount */}
-        <div className="bg-card border border-border p-4 rounded-3xl shadow-soft">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-muted-foreground">Pending Amount</span>
-            <div className="p-2 rounded-2xl bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400">
-              <AlertTriangle className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div className="text-2xl sm:text-3xl font-black text-rose-600 dark:text-rose-400">
-            ₹{stats.totalPendingAmount || 0}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1 font-medium">
-            {stats.studentsWithDueCount || 0} students due
-          </p>
-        </div>
-      </div>
-
-      {/* Due Students Quick Action Section */}
-      <div className="bg-card border border-border rounded-3xl p-5 shadow-soft">
-        <div className="flex items-center justify-between mb-4">
+    <div className="space-y-6 pb-6">
+      {/* Top Banner Greeting */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-900 text-white p-6 sm:p-7 rounded-3xl shadow-xl">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h2 className="font-extrabold text-base flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-500" />
-              <span>Students with Pending & Due Fees</span>
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              {stats.studentsDueTodayCount || 0} due today • Instant WhatsApp reminder triggers
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-white text-xs font-semibold backdrop-blur-md mb-2">
+              <Clock className="w-3.5 h-3.5" />
+              {formattedDate || "Today"}
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+              {greeting}, {teacherName}!
+            </h1>
+            <p className="text-xs sm:text-sm text-indigo-100/90 mt-1 font-medium">
+              {instituteName} — Attendance Overview & Today&apos;s Records
             </p>
           </div>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/attendance"
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-white text-indigo-700 hover:bg-indigo-50 font-extrabold text-sm rounded-2xl shadow-lg transition-all active:scale-95 w-full sm:w-auto"
+            >
+              <CalendarCheck className="w-5 h-5" />
+              <span>Take Attendance</span>
+            </Link>
+
+            <button
+              onClick={fetchDashboardData}
+              className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-2xl transition-all active:scale-95"
+              title="Refresh Data"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Action Navigation Tiles */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        <Link
+          href="/attendance"
+          className="p-4 rounded-3xl bg-card border border-border shadow-soft hover:border-indigo-500/50 transition-all flex flex-col items-center text-center group"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-all">
+            <CalendarCheck className="w-6 h-6" />
+          </div>
+          <span className="font-extrabold text-sm text-foreground">Take Attendance</span>
+          <span className="text-[11px] text-muted-foreground font-medium mt-0.5">Primary Action</span>
+        </Link>
+
+        <a
+          href="#absentees"
+          className="p-4 rounded-3xl bg-card border border-border shadow-soft hover:border-rose-500/50 transition-all flex flex-col items-center text-center group"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-all">
+            <AlertCircle className="w-6 h-6" />
+          </div>
+          <span className="font-extrabold text-sm text-foreground">Today&apos;s Absentees</span>
+          <span className="text-[11px] text-rose-600 dark:text-rose-400 font-bold mt-0.5">
+            {todaysAbsentees.length} Absent Today
+          </span>
+        </a>
+
+        <Link
+          href="/students"
+          className="p-4 rounded-3xl bg-card border border-border shadow-soft hover:border-emerald-500/50 transition-all flex flex-col items-center text-center group"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-all">
+            <Users className="w-6 h-6" />
+          </div>
+          <span className="font-extrabold text-sm text-foreground">Students</span>
+          <span className="text-[11px] text-muted-foreground font-medium mt-0.5">Manage Batches</span>
+        </Link>
+
+        <Link
+          href="/reports"
+          className="p-4 rounded-3xl bg-card border border-border shadow-soft hover:border-indigo-500/50 transition-all flex flex-col items-center text-center group"
+        >
+          <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 flex items-center justify-center mb-2 group-hover:scale-110 transition-all">
+            <TrendingUp className="w-6 h-6" />
+          </div>
+          <span className="font-extrabold text-sm text-foreground">Reports</span>
+          <span className="text-[11px] text-muted-foreground font-medium mt-0.5">Analytics & Export</span>
+        </Link>
+      </div>
+
+      {/* Batch Cards: Batch 5-7 and Batch 7-9 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Batch 5-7 Card */}
+        <div className="bg-card border border-border/80 rounded-3xl p-5 sm:p-6 shadow-soft space-y-4 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Batch 1
+              </span>
+              <h2 className="text-xl font-black text-foreground">
+                {stats57?.batchName || "5–7 Batch"}
+              </h2>
+              <p className="text-xs text-muted-foreground font-medium">
+                {stats57?.batchTiming || "5:00 PM – 7:00 PM"}
+              </p>
+            </div>
+
+            {stats57?.isHoliday ? (
+              <span className="px-3 py-1.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-extrabold border border-amber-500/20">
+                🏖️ {stats57.holidayReason || "Holiday"}
+              </span>
+            ) : stats57?.status === "Completed" ? (
+              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-extrabold border border-emerald-500/20">
+                <CheckCircle2 className="w-4 h-4" /> Marked
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-extrabold border border-amber-500/20">
+                <Clock className="w-4 h-4" /> Pending
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 pt-2 text-center bg-muted/40 p-3 rounded-2xl border border-border/60">
+            <div>
+              <span className="text-[10px] text-muted-foreground font-semibold block uppercase">
+                Total
+              </span>
+              <span className="text-lg font-black text-foreground">
+                {stats57?.totalStudents || 0}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block uppercase">
+                Present
+              </span>
+              <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                {stats57?.present || 0}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold block uppercase">
+                Absent
+              </span>
+              <span className="text-lg font-black text-rose-600 dark:text-rose-400">
+                {stats57?.absent || 0}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold block uppercase">
+                Rate
+              </span>
+              <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                {stats57?.attendancePercentage || 0}%
+              </span>
+            </div>
+          </div>
+
           <Link
-            href="/students?dueFilter=OVERDUE"
-            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1"
+            href={`/attendance?batch=5-7`}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-sm transition-all active:scale-95"
           >
-            <span>View All</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
+            <CalendarCheck className="w-4 h-4" />
+            <span>
+              {stats57?.status === "Completed" ? "Edit 5–7 Attendance" : "Take 5–7 Attendance"}
+            </span>
           </Link>
         </div>
 
-        {dueStudentsList.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground border border-dashed border-border rounded-2xl">
-            <p className="text-sm font-semibold">🎉 All tuition fees are fully collected!</p>
-            <p className="text-xs">No pending or overdue fees found.</p>
+        {/* Batch 7-9 Card */}
+        <div className="bg-card border border-border/80 rounded-3xl p-5 sm:p-6 shadow-soft space-y-4 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Batch 2
+              </span>
+              <h2 className="text-xl font-black text-foreground">
+                {stats79?.batchName || "7–9 Batch"}
+              </h2>
+              <p className="text-xs text-muted-foreground font-medium">
+                {stats79?.batchTiming || "7:00 PM – 9:00 PM"}
+              </p>
+            </div>
+
+            {stats79?.isHoliday ? (
+              <span className="px-3 py-1.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-extrabold border border-amber-500/20">
+                🏖️ {stats79.holidayReason || "Holiday"}
+              </span>
+            ) : stats79?.status === "Completed" ? (
+              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-extrabold border border-emerald-500/20">
+                <CheckCircle2 className="w-4 h-4" /> Marked
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-extrabold border border-amber-500/20">
+                <Clock className="w-4 h-4" /> Pending
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 pt-2 text-center bg-muted/40 p-3 rounded-2xl border border-border/60">
+            <div>
+              <span className="text-[10px] text-muted-foreground font-semibold block uppercase">
+                Total
+              </span>
+              <span className="text-lg font-black text-foreground">
+                {stats79?.totalStudents || 0}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block uppercase">
+                Present
+              </span>
+              <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">
+                {stats79?.present || 0}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold block uppercase">
+                Absent
+              </span>
+              <span className="text-lg font-black text-rose-600 dark:text-rose-400">
+                {stats79?.absent || 0}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold block uppercase">
+                Rate
+              </span>
+              <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">
+                {stats79?.attendancePercentage || 0}%
+              </span>
+            </div>
+          </div>
+
+          <Link
+            href={`/attendance?batch=7-9`}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-xs shadow-sm transition-all active:scale-95"
+          >
+            <CalendarCheck className="w-4 h-4" />
+            <span>
+              {stats79?.status === "Completed" ? "Edit 7–9 Attendance" : "Take 7–9 Attendance"}
+            </span>
+          </Link>
+        </div>
+      </div>
+
+      {/* TODAY'S ABSENTEES SECTION */}
+      <div id="absentees" className="bg-card border border-border rounded-3xl p-5 sm:p-6 shadow-soft space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-black flex items-center gap-2 text-foreground">
+              <AlertCircle className="w-5 h-5 text-rose-500" />
+              <span>Today&apos;s Absentees</span>
+            </h2>
+            <p className="text-xs text-muted-foreground font-medium">
+              Instant Phone Call & WhatsApp Reminders to Parents
+            </p>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-extrabold border border-rose-500/20">
+            {todaysAbsentees.length} Absent Today
+          </span>
+        </div>
+
+        {todaysAbsentees.length === 0 ? (
+          <div className="text-center py-8 border border-dashed border-border rounded-2xl bg-muted/20">
+            <p className="text-sm font-extrabold text-emerald-600 dark:text-emerald-400">
+              🎉 100% Attendance Recorded!
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              No students absent today or attendance is pending.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {dueStudentsList.slice(0, 6).map((item: any) => (
+            {todaysAbsentees.map((abs) => (
               <div
-                key={item.student.studentId}
-                className="p-4 rounded-2xl border border-border/80 bg-muted/40 hover:bg-muted/70 transition-all space-y-3"
+                key={abs.studentId}
+                className="p-4 rounded-2xl border border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 transition-all space-y-3"
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <h3 className="font-bold text-sm">{item.student.name}</h3>
+                    <span className="inline-block px-2 py-0.5 rounded-lg bg-rose-500 text-white text-[10px] font-black uppercase tracking-wider mb-1">
+                      🔴 ABSENT ({abs.batch} Batch)
+                    </span>
+                    <h3 className="font-extrabold text-sm text-foreground">{abs.name}</h3>
                     <p className="text-xs text-muted-foreground">
-                      {item.student.studentId} • Class {item.student.class}
+                      {abs.studentId} • {abs.class}
                     </p>
                   </div>
-                  <StatusBadge status={item.dueInfo.status} size="sm" />
+                  {abs.consecutiveAbsences >= 2 && (
+                    <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-black">
+                      {abs.consecutiveAbsences}x Consecutive
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex items-center justify-between text-xs pt-1 border-t border-border/50">
-                  <div>
-                    <span className="text-muted-foreground block text-[10px]">Total Pending:</span>
-                    <span className="font-extrabold text-rose-600 dark:text-rose-400">
-                      ₹{item.dueInfo.totalPendingAmount}
-                    </span>
-                  </div>
+                <div className="flex items-center justify-between pt-2 border-t border-rose-500/15">
+                  <span className="text-[11px] text-muted-foreground font-semibold">
+                    Parent: {abs.parentName || "Parent"}
+                  </span>
 
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => {
-                        setSelectedStudentForCollect(item.student);
-                        setIsCollectFeeOpen(true);
-                      }}
-                      className="px-2.5 py-1 text-xs font-bold bg-indigo-600 text-white rounded-xl shadow-xs hover:bg-indigo-700 transition-all active:scale-95"
-                    >
-                      Collect
-                    </button>
+                  <div className="flex items-center gap-2">
+                    {/* Call Button */}
+                    {abs.telLink ? (
+                      <a
+                        href={abs.telLink}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95"
+                        title="Call Parent"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>Call</span>
+                      </a>
+                    ) : (
+                      <button
+                        disabled
+                        className="px-2.5 py-1.5 bg-muted text-muted-foreground rounded-xl text-xs font-semibold cursor-not-allowed opacity-60"
+                        title="No contact number available"
+                      >
+                        No Phone
+                      </button>
+                    )}
 
-                    <WhatsAppButton
-                      parentMobile={item.student.parentMobile}
-                      studentDues={getFamilyDuesForDashboard(item.student.parentMobile)}
-                      size="sm"
-                      label="Remind"
-                    />
+                    {/* WhatsApp Button */}
+                    {abs.whatsappUrl ? (
+                      <a
+                        href={abs.whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs shadow-xs transition-all active:scale-95"
+                        title="Open WhatsApp"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>WhatsApp</span>
+                      </a>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -253,69 +415,109 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Monthly Collection Visual Breakdown & Recent Payments */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Collection Breakdown Cards */}
-        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft lg:col-span-2">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-extrabold text-base flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-emerald-500" />
-                <span>Monthly Fee Collection Overview</span>
-              </h2>
-              <p className="text-xs text-muted-foreground">Yearly progress breakdown per month</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2 pt-2">
-            {collectionChartData.map((item: any) => (
-              <div
-                key={item.month}
-                className="p-3 rounded-2xl bg-muted/40 border border-border/60 text-center space-y-1"
-              >
-                <span className="text-[11px] font-bold text-muted-foreground uppercase">{item.month}</span>
-                <p className="font-extrabold text-xs text-foreground">₹{item.amount}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Collection Timeline */}
-        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-extrabold text-base flex items-center gap-2">
-              <ReceiptText className="w-4 h-4 text-indigo-500" />
-              <span>Recent Payments</span>
+      {/* CONSECUTIVE ABSENCE & LOW ATTENDANCE ALERTS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Consecutive Absence Alert Widget */}
+        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-extrabold text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4.5 h-4.5 text-amber-500" />
+              <span>Consecutive Absence Alerts (≥3 Classes)</span>
             </h2>
             <Link
-              href="/payments"
+              href="/reports?tab=consecutive"
               className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
             >
-              All History
+              View All
             </Link>
           </div>
 
-          {recentPayments.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-6">No payments recorded yet</p>
+          {consecutiveAbsenceAlerts.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">
+              No students with 3+ consecutive absences. Excellent!
+            </p>
           ) : (
-            <div className="space-y-3">
-              {recentPayments.map((p: any) => (
+            <div className="space-y-2">
+              {consecutiveAbsenceAlerts.slice(0, 4).map((item: any) => (
                 <div
-                  key={p._id}
-                  onClick={() => setReceiptPayment(p)}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-muted/30 border border-border/40 hover:bg-muted/60 transition-all cursor-pointer"
+                  key={item.student.studentId}
+                  className="flex items-center justify-between p-3 rounded-2xl bg-amber-500/5 border border-amber-500/20"
                 >
                   <div>
-                    <p className="font-bold text-xs">{p.studentName}</p>
+                    <p className="font-bold text-xs text-foreground">{item.student.name}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      {p.receiptNo} • {p.paymentDate}
+                      {item.student.studentId} • Class {item.student.class} ({item.student.batch || "5-7"})
                     </p>
                   </div>
-                  <div className="text-right">
-                    <p className="font-extrabold text-xs text-emerald-600 dark:text-emerald-400">
-                      +₹{p.amount}
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-lg bg-amber-500 text-white text-[11px] font-extrabold">
+                      ⚠️ {item.consecutiveAbsences} Absences
+                    </span>
+                    {item.whatsappUrl && (
+                      <a
+                        href={item.whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700"
+                        title="WhatsApp Parent"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Low Attendance Alert Widget (<75%) */}
+        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-extrabold text-sm flex items-center gap-2">
+              <Award className="w-4.5 h-4.5 text-rose-500" />
+              <span>Low Attendance Students (&lt;75%)</span>
+            </h2>
+            <Link
+              href="/reports?tab=low"
+              className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+            >
+              View All
+            </Link>
+          </div>
+
+          {lowAttendanceAlerts.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">
+              All students have healthy attendance above threshold.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {lowAttendanceAlerts.slice(0, 4).map((item: any) => (
+                <div
+                  key={item.student.studentId}
+                  className="flex items-center justify-between p-3 rounded-2xl bg-rose-500/5 border border-rose-500/20"
+                >
+                  <div>
+                    <p className="font-bold text-xs text-foreground">{item.student.name}</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {item.student.studentId} • Class {item.student.class}
                     </p>
-                    <span className="text-[10px] text-muted-foreground font-semibold">{p.mode}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-rose-600 text-white text-[11px] font-black">
+                      {item.percentage}% Rate
+                    </span>
+                    {item.whatsappUrl && (
+                      <a
+                        href={item.whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700"
+                        title="WhatsApp Parent"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </a>
+                    )}
                   </div>
                 </div>
               ))}
@@ -323,41 +525,6 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
-
-      {/* Floating Action Button for Mobile */}
-      <button
-        onClick={() => setIsAddStudentOpen(true)}
-        className="md:hidden fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-600/40 active:scale-95"
-        title="Add New Student"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
-
-      {/* Modals */}
-      <StudentModal
-        isOpen={isAddStudentOpen}
-        onClose={() => setIsAddStudentOpen(false)}
-        onSuccess={fetchDashboardData}
-      />
-
-      <CollectFeeModal
-        isOpen={isCollectFeeOpen}
-        onClose={() => {
-          setIsCollectFeeOpen(false);
-          setSelectedStudentForCollect(null);
-        }}
-        onSuccess={(payment) => {
-          fetchDashboardData();
-          setReceiptPayment(payment);
-        }}
-        student={selectedStudentForCollect}
-      />
-
-      <ReceiptModal
-        isOpen={!!receiptPayment}
-        onClose={() => setReceiptPayment(null)}
-        payment={receiptPayment}
-      />
     </div>
   );
 }

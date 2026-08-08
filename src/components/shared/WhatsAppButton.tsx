@@ -2,11 +2,11 @@
 
 import React from "react";
 import { MessageSquare } from "lucide-react";
-import { generateWhatsAppLink, StudentWithDue } from "@/lib/whatsapp";
+import { generateWhatsAppLink } from "@/lib/whatsapp";
 
 interface WhatsAppButtonProps {
   parentMobile: string;
-  studentDues: StudentWithDue[];
+  studentName?: string;
   label?: string;
   size?: "sm" | "md" | "lg";
   className?: string;
@@ -14,18 +14,20 @@ interface WhatsAppButtonProps {
 
 export function WhatsAppButton({
   parentMobile,
-  studentDues,
+  studentName = "Student",
   label = "WhatsApp",
   size = "md",
   className = "",
 }: WhatsAppButtonProps) {
-  const url = generateWhatsAppLink(parentMobile, studentDues);
+  const url = generateWhatsAppLink(parentMobile, studentName);
 
   const sizeClasses = {
     sm: "px-2.5 py-1 text-xs gap-1.5",
     md: "px-3.5 py-1.5 text-sm gap-2 font-medium",
     lg: "px-4 py-2 text-base gap-2 font-semibold",
   }[size];
+
+  if (!url) return null;
 
   return (
     <a

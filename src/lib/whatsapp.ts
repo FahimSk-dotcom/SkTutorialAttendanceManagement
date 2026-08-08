@@ -1,107 +1,59 @@
-import { Student, DynamicDueResult } from "@/types";
+export const DEFAULT_WHATSAPP_TEMPLATE = `Assalamualaikum,
 
-export interface StudentWithDue {
-  student: Student;
-  dueInfo: DynamicDueResult;
-}
+{studentName} was absent from today's class. Kindly let me know the reason.
 
-export function cleanPhoneNumber(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
+Regards,
+Prof. Fahim Sir
+SK Tutorials`;
+
+/**
+ * Normalizes Indian phone numbers into pure digits with 91 country code prefix for wa.me URLs.
+ * Example: "9004740981" -> "919004740981"
+ * Example: "+91 90047-40981" -> "919004740981"
+ */
+export function normalizeWhatsAppNumber(phoneStr: string): string {
+  if (!phoneStr) return "";
+  // Strip all non-digits
+  const digits = phoneStr.replace(/\D/g, "");
+
   if (digits.length === 10) {
     return `91${digits}`;
   }
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return digits;
+  }
+  if (digits.length > 10 && digits.startsWith("0")) {
+    return `91${digits.slice(1)}`;
+  }
+
   return digits;
 }
 
-export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-IN").format(amount);
+/**
+ * Helper to clean class display string (e.g. "Class 9" -> "9")
+ */
+export function cleanClassDisplay(className: string): string {
+  if (!className) return "";
+  return className.replace(/^Class\s+/i, "");
 }
 
-export function cleanClassDisplay(classStr: string): string {
-  if (!classStr) return "-";
-  // Strips duplicate "Class " or "class " prefix if present
-  const cleaned = classStr.replace(/^class\s+/i, "").trim();
-  return cleaned;
-}
-
+/**
+ * Generates an official WhatsApp wa.me click-to-chat URL.
+ * Works seamlessly on iPhone, Android, WhatsApp Web, and Desktop.
+ */
 export function generateWhatsAppLink(
-  parentMobile: string,
-  siblingStudentsWithDues: StudentWithDue[]
+  phoneStr: string,
+  studentName: string,
+  templateStr: string = DEFAULT_WHATSAPP_TEMPLATE
 ): string {
-  const formattedPhone = cleanPhoneNumber(parentMobile);
+  const cleanNumber = normalizeWhatsAppNumber(phoneStr);
+  if (!cleanNumber) return "";
 
-  if (!siblingStudentsWithDues || siblingStudentsWithDues.length === 0) {
-    return `https://wa.me/${formattedPhone}`;
-  }
+  const finalMessage = (templateStr || DEFAULT_WHATSAPP_TEMPLATE).replace(
+    /\{studentName\}/g,
+    studentName
+  );
 
-  let message = "";
-
-  if (siblingStudentsWithDues.length === 1) {
-    const { student, dueInfo } = siblingStudentsWithDues[0];
-    const pendingMonthsText =
-      dueInfo.pendingMonths && dueInfo.pendingMonths.length > 0
-        ? dueInfo.pendingMonths.map((p) => p.monthName).join(", ")
-        : "Current Month";
-    const totalDue = dueInfo.totalPendingAmount ?? student.monthlyFee;
-    const studentClass = cleanClassDisplay(student.class);
-
-    message = `*Assalamualaikum,*
-
-This is a gentle reminder from *SK Tutorials* regarding your ward’s pending tuition fees.
-
-*👨🎓 Student: ${student.name}*
-*🏫 Class: ${studentClass}*
-*💰 Monthly Fee: ₹${formatCurrency(student.monthlyFee)}*
-*📅 Pending Month: ${pendingMonthsText}*
-*💳 Total Due: ₹${formatCurrency(totalDue)}*
-
-We kindly request you to clear the pending fees at the earliest to avoid any inconvenience.
-
-If you have already made the payment, please ignore this message.
-
-*Regards,*
-*Prof. Fahim Sir*
-*SK Tutorials*`;
-  } else {
-    // Consolidated Sibling Message for 2, 3, 4, or ANY number of siblings
-    let studentBreakdown = "";
-    let grandTotal = 0;
-
-    siblingStudentsWithDues.forEach((item, idx) => {
-      const { student, dueInfo } = item;
-      const pendingMonthsText =
-        dueInfo.pendingMonths && dueInfo.pendingMonths.length > 0
-          ? dueInfo.pendingMonths.map((p) => p.monthName).join(", ")
-          : "Current Month";
-      const dueAmount = dueInfo.totalPendingAmount ?? student.monthlyFee;
-      grandTotal += dueAmount;
-      const studentClass = cleanClassDisplay(student.class);
-
-      studentBreakdown += `*👨🎓 Student ${idx + 1}: ${student.name}*
-*🏫 Class: ${studentClass}*
-*💰 Monthly Fee: ₹${formatCurrency(student.monthlyFee)}*
-*📅 Pending Month: ${pendingMonthsText}*
-*💳 Pending Amount: ₹${formatCurrency(dueAmount)}*\n\n`;
-    });
-
-    message = `*Assalamualaikum,*
-
-This is a gentle reminder from *SK Tutorials* regarding your wards’ pending tuition fees.
-
-${studentBreakdown.trim()}
-
-*--------------------------------*
-*💳 Grand Total Due: ₹${formatCurrency(grandTotal)}*
-
-We kindly request you to clear the pending fees at the earliest to avoid any inconvenience.
-
-If you have already made the payment, please ignore this message.
-
-*Regards,*
-*Prof. Fahim Sir*
-*SK Tutorials*`;
-  }
-
-  const encodedMessage = encodeURIComponent(message);
-  return `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+  const encodedMsg = encodeURIComponent(finalMessage);
+  return `https://wa.me/${cleanNumber}?text=${encodedMsg}`;
 }

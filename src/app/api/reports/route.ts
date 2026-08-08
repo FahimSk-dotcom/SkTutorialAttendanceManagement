@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { getAuthenticatedAdmin } from "@/lib/auth";
-import { calculateStudentDueStatus } from "@/lib/due-calculator";
-import { Student, Payment } from "@/types";
+import { getDaysInMonth, getKolkataToday } from "@/lib/date";
+import { getContactMobile, generateTelLink } from "@/lib/phone";
+import { generateWhatsAppLink, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/whatsapp";
 
 export async function GET(req: Request) {
   try {
@@ -12,116 +13,202 @@ export async function GET(req: Request) {
     }
 
     const { searchParams } = new URL(req.url);
-    const type = searchParams.get("type") || "collection"; // collection | pending | ledger | expenses
-    const studentId = searchParams.get("studentId");
-    const month = searchParams.get("month");
-    const year = searchParams.get("year");
+    const reportType = searchParams.get("type") || "summary";
+    const batchFilter = searchParams.get("batch") || "All";
+    const month = parseInt(searchParams.get("month") || String(new Date().getMonth() + 1), 10);
+    const year = parseInt(searchParams.get("year") || String(new Date().getFullYear()), 10);
 
     const db = await getDb();
+    const todayStr = getKolkataToday();
 
-    if (type === "collection") {
-      const query: Record<string, any> = {};
-      if (month && month !== "All") query.month = parseInt(month, 10);
-      if (year && year !== "All") query.year = parseInt(year, 10);
+    // Fetch settings for thresholds & templates
+    const settingsDoc = await db
+      .collection("attendance")
+      .findOne({ docType: "settings", key: "app_settings" });
+    const lowThreshold = settingsDoc?.attendanceThreshold || 75;
+    const consThreshold = settingsDoc?.consecutiveAbsenceThreshold || 3;
+    const waTemplate = settingsDoc?.whatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE;
 
-      const payments = await db.collection("payments").find(query).sort({ paymentDate: -1 }).toArray();
+    // Fetch students
+    const students = await db
+      .collection("students")
+      .find(batchFilter === "All" ? {} : { batch: batchFilter })
+      .sort({ studentId: 1 })
+      .toArray();
 
-      const studentIds = Array.from(new Set(payments.map((p: any) => p.studentId)));
-      const students = await db.collection("students").find({ studentId: { $in: studentIds } }).toArray();
-      const stMap: Record<string, any> = {};
-      students.forEach((s: any) => { stMap[s.studentId] = s; });
+    // Fetch holidays
+    const holidays = await db
+      .collection("attendance")
+      .find({ docType: "holiday" })
+      .toArray();
+    const holidayDateSet = new Set(holidays.map((h: any) => h.date));
 
-      const collectionReport = payments.map((p: any) => ({
-        receiptNo: p.receiptNo,
-        studentId: p.studentId,
-        studentName: stMap[p.studentId]?.name || "Unknown",
-        class: stMap[p.studentId]?.class || "-",
-        parentMobile: stMap[p.studentId]?.parentMobile || "-",
-        paymentDate: p.paymentDate,
-        feeMonth: `${p.month}/${p.year}`,
-        amount: p.amount,
-        mode: p.mode,
-      }));
+    // Fetch all attendance records up to today
+    const attendanceRecords = await db
+      .collection("attendance")
+      .find({ docType: "attendance", date: { $lte: todayStr } })
+      .toArray();
 
-      const totalCollected = collectionReport.reduce((sum: number, item: any) => sum + item.amount, 0);
+    // Filter valid attendance excluding holidays
+    const validRecords = attendanceRecords.filter((r: any) => !holidayDateSet.has(r.date));
 
-      return NextResponse.json({ report: collectionReport, totalCollected });
-    } else if (type === "pending") {
-      const activeStudents = await db.collection("students").find({ status: "Active" }).toArray();
-      const allPayments = await db.collection("payments").find({}).toArray();
-
-      const paymentsByStudent: Record<string, Payment[]> = {};
-      allPayments.forEach((p: any) => {
-        if (!paymentsByStudent[p.studentId]) paymentsByStudent[p.studentId] = [];
-        paymentsByStudent[p.studentId].push({
-          _id: p._id.toString(),
-          studentId: p.studentId,
-          paymentDate: p.paymentDate,
-          month: p.month,
-          year: p.year,
-          amount: p.amount,
-          mode: p.mode,
-          receiptNo: p.receiptNo,
-          collectedBy: p.collectedBy,
-        });
-      });
-
-      const pendingReport: any[] = [];
-      let totalPending = 0;
-
-      activeStudents.forEach((s: any) => {
-        const student: Student = {
-          _id: s._id.toString(),
-          studentId: s.studentId,
-          name: s.name,
-          class: s.class,
-          batch: s.batch,
-          monthlyFee: s.monthlyFee,
-          parentName: s.parentName,
-          parentMobile: s.parentMobile,
-          admissionDate: s.admissionDate,
-          status: s.status,
-        };
-
-        const dueInfo = calculateStudentDueStatus(student, paymentsByStudent[s.studentId] || []);
-
-        if (dueInfo.status === "OVERDUE" || dueInfo.status === "DUE_TODAY") {
-          totalPending += dueInfo.totalPendingAmount;
-          pendingReport.push({
-            studentId: s.studentId,
-            studentName: s.name,
-            class: s.class,
-            batch: s.batch,
-            parentName: s.parentName,
-            parentMobile: s.parentMobile,
-            status: dueInfo.status,
-            pendingMonths: dueInfo.pendingMonths.map((p) => p.monthName).join(", "),
-            totalPendingAmount: dueInfo.totalPendingAmount,
-          });
-        }
-      });
-
-      return NextResponse.json({ report: pendingReport, totalPending });
-    } else if (type === "ledger" && studentId) {
-      const student = await db.collection("students").findOne({ studentId });
-      if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
-
-      const payments = await db
-        .collection("payments")
-        .find({ studentId })
-        .sort({ year: 1, month: 1 })
-        .toArray();
-
-      return NextResponse.json({ student, payments });
-    } else if (type === "expenses") {
-      const expenses = await db.collection("expenses").find({}).sort({ date: -1 }).toArray();
-      const totalExpense = expenses.reduce((sum: number, e: any) => sum + e.amount, 0);
-      return NextResponse.json({ report: expenses, totalExpense });
+    // Map records by studentId
+    const studentRecordsMap = new Map<string, any[]>();
+    for (const rec of validRecords) {
+      if (!studentRecordsMap.has(rec.studentId)) {
+        studentRecordsMap.set(rec.studentId, []);
+      }
+      studentRecordsMap.get(rec.studentId)!.push(rec);
     }
 
-    return NextResponse.json({ error: "Invalid report type" }, { status: 400 });
+    if (reportType === "monthly") {
+      // Monthly matrix report
+      const mStr = String(month).padStart(2, "0");
+      const monthPrefix = `${year}-${mStr}`;
+      const daysInMonth = getDaysInMonth(year, month);
+
+      // Unique dates conducted in this month for specified batch
+      const monthlyRecords = validRecords.filter((r: any) => {
+        if (!r.date.startsWith(monthPrefix)) return false;
+        if (batchFilter !== "All" && r.batch !== batchFilter) return false;
+        return true;
+      });
+
+      const conductedDates = Array.from(new Set(monthlyRecords.map((r: any) => r.date))).sort();
+
+      const studentRows = students.map((st: any) => {
+        const stRecs = monthlyRecords.filter((r: any) => r.studentId === st.studentId);
+        const cond = stRecs.length;
+        const pres = stRecs.filter((r: any) => r.status === "present").length;
+        const abs = stRecs.filter((r: any) => r.status === "absent").length;
+        const pct = cond > 0 ? Math.round((pres / cond) * 100) : 0;
+
+        // Daily matrix mapping { "2026-08-01": "present", ... }
+        const dailyMap: Record<string, string> = {};
+        stRecs.forEach((r: any) => {
+          dailyMap[r.date] = r.status;
+        });
+
+        return {
+          studentId: st.studentId,
+          name: st.name,
+          class: st.class,
+          batch: st.batch || "Unassigned",
+          conducted: cond,
+          present: pres,
+          absent: abs,
+          percentage: pct,
+          dailyMap,
+        };
+      });
+
+      return NextResponse.json({
+        year,
+        month,
+        batchFilter,
+        conductedDates,
+        studentRows,
+      });
+    }
+
+    if (reportType === "batch") {
+      // Batch comparison report
+      const batch57Students = students.filter((s: any) => s.batch === "5-7");
+      const batch79Students = students.filter((s: any) => s.batch === "7-9");
+
+      const recs57 = validRecords.filter((r: any) => r.batch === "5-7");
+      const recs79 = validRecords.filter((r: any) => r.batch === "7-9");
+
+      const dates57 = new Set(recs57.map((r: any) => r.date)).size;
+      const dates79 = new Set(recs79.map((r: any) => r.date)).size;
+
+      const p57 = recs57.filter((r: any) => r.status === "present").length;
+      const p79 = recs79.filter((r: any) => r.status === "present").length;
+
+      const pct57 = recs57.length > 0 ? Math.round((p57 / recs57.length) * 100) : 0;
+      const pct79 = recs79.length > 0 ? Math.round((p79 / recs79.length) * 100) : 0;
+
+      return NextResponse.json({
+        batch57: {
+          name: settingsDoc?.batch1Name || "5–7",
+          timing: settingsDoc?.batch1Timing || "5:00 PM – 7:00 PM",
+          totalStudents: batch57Students.length,
+          classesConducted: dates57,
+          totalPresent: p57,
+          totalAbsent: recs57.length - p57,
+          avgPercentage: pct57,
+        },
+        batch79: {
+          name: settingsDoc?.batch2Name || "7–9",
+          timing: settingsDoc?.batch2Timing || "7:00 PM – 9:00 PM",
+          totalStudents: batch79Students.length,
+          classesConducted: dates79,
+          totalPresent: p79,
+          totalAbsent: recs79.length - p79,
+          avgPercentage: pct79,
+        },
+      });
+    }
+
+    // Default summary student report with alerts
+    const studentReportList = students.map((student: any) => {
+      const stRecs = (studentRecordsMap.get(student.studentId) || []).sort(
+        (a, b) => b.date.localeCompare(a.date)
+      );
+
+      const totalConducted = stRecs.length;
+      const presentCount = stRecs.filter((r: any) => r.status === "present").length;
+      const absentCount = stRecs.filter((r: any) => r.status === "absent").length;
+      const percentage = totalConducted > 0 ? Math.round((presentCount / totalConducted) * 100) : 0;
+
+      // Consecutive absence calculation
+      let consecutiveAbsences = 0;
+      let consecutivePresence = 0;
+
+      if (stRecs.length > 0) {
+        if (stRecs[0].status === "absent") {
+          for (const rec of stRecs) {
+            if (rec.status === "absent") consecutiveAbsences++;
+            else break;
+          }
+        } else if (stRecs[0].status === "present") {
+          for (const rec of stRecs) {
+            if (rec.status === "present") consecutivePresence++;
+            else break;
+          }
+        }
+      }
+
+      const contactMobile = getContactMobile(student);
+
+      return {
+        studentId: student.studentId,
+        name: student.name,
+        class: student.class,
+        batch: student.batch || "Unassigned",
+        status: student.status,
+        parentName: student.parentName,
+        contactMobile,
+        telLink: generateTelLink(contactMobile),
+        whatsappUrl: generateWhatsAppLink(contactMobile, student.name, waTemplate),
+        totalConducted,
+        presentCount,
+        absentCount,
+        percentage,
+        consecutiveAbsences,
+        consecutivePresence,
+        isLowAttendance: totalConducted >= 3 && percentage < lowThreshold,
+        isConsecutiveAbsenceAlert: consecutiveAbsences >= consThreshold,
+      };
+    });
+
+    return NextResponse.json({
+      students: studentReportList,
+      lowThreshold,
+      consThreshold,
+    });
   } catch (error: any) {
-    console.error("GET /api/reports error:", error);
+    console.error("GET reports error:", error);
     return NextResponse.json({ error: "Failed to generate report" }, { status: 500 });
   }
 }

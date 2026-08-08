@@ -6,24 +6,23 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  CalendarCheck,
   Users,
-  CreditCard,
-  ReceiptText,
   BarChart3,
   Settings as SettingsIcon,
-  GraduationCap,
+  CheckCircle2,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Attendance", href: "/attendance", icon: CalendarCheck },
   { name: "Students", href: "/students", icon: Users },
-  { name: "Payments", href: "/payments", icon: CreditCard },
-  { name: "Expenses", href: "/expenses", icon: ReceiptText },
   { name: "Reports", href: "/reports", icon: BarChart3 },
   { name: "Settings", href: "/settings", icon: SettingsIcon },
 ];
 
-const LOGO_URL = "https://res.cloudinary.com/dfmcngduw/image/upload/v1784896530/86a65215-ce9c-427d-9cc5-f67d0a08040c_gyndgk.png";
+const LOGO_URL =
+  "https://res.cloudinary.com/dfmcngduw/image/upload/v1784896530/86a65215-ce9c-427d-9cc5-f67d0a08040c_gyndgk.png";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -32,21 +31,23 @@ export function Sidebar() {
     <aside className="hidden md:flex flex-col w-64 border-r border-border bg-card text-card-foreground min-h-screen p-4 transition-all duration-300 shadow-soft z-20">
       {/* Brand Header */}
       <div className="flex items-center gap-3 px-3 py-4 mb-6">
-        <div className="relative w-10 h-10 rounded-2xl overflow-hidden bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+        <div className="relative w-11 h-11 rounded-2xl overflow-hidden bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
           <Image
             src={LOGO_URL}
             alt="SK Tutorials Logo"
-            width={40}
-            height={40}
+            width={44}
+            height={44}
             className="object-cover w-full h-full"
             priority
           />
         </div>
         <div>
-          <h1 className="font-bold text-lg leading-tight tracking-tight text-foreground">
+          <h1 className="font-extrabold text-lg leading-tight tracking-tight text-foreground">
             SK Tutorials
           </h1>
-          <p className="text-xs text-muted-foreground font-medium">Fee Management</p>
+          <p className="text-xs text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-1 mt-0.5">
+            <CheckCircle2 className="w-3 h-3 inline" /> Attendance App
+          </p>
         </div>
       </div>
 
@@ -61,9 +62,9 @@ export function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
-              className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
+              className={`flex items-center gap-3 px-3.5 py-3 rounded-2xl text-sm font-semibold transition-all duration-200 ${
                 isActive
-                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/30"
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
@@ -75,9 +76,9 @@ export function Sidebar() {
       </nav>
 
       {/* Footer Info */}
-      <div className="p-3 bg-muted/50 rounded-2xl border border-border/50 text-center">
-        <p className="text-xs text-muted-foreground font-semibold">SK Tutorials v1.0</p>
-        <p className="text-[10px] text-muted-foreground/70">Prof. Fahim Sir • Admin</p>
+      <div className="p-3 bg-muted/60 rounded-2xl border border-border/50 text-center">
+        <p className="text-xs text-foreground font-extrabold">Prof. Fahim Sir</p>
+        <p className="text-[11px] text-muted-foreground font-medium">Personal Tuition Suite</p>
       </div>
     </aside>
   );

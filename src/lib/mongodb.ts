@@ -6,7 +6,7 @@ const DB_NAME = process.env.MONGODB_DB || "sk_tutorials";
 let cachedClient: MongoClient | null = null;
 let cachedDb: any = null;
 
-// In-Memory Database Fallback Store for Local Testing without running MongoDB daemon
+// In-Memory Database Fallback Store for Local Testing
 class InMemoryCollection {
   private name: string;
   private static store: Record<string, any[]> = {};
@@ -48,12 +48,7 @@ class InMemoryCollection {
     let result = this.items.filter((item) =>
       Object.entries(query).every(([k, v]) => {
         if (k === "status" && v !== "All") return item.status === v;
-        if (k === "class" && v !== "All") return item.class === v;
         if (k === "batch" && v !== "All") return item.batch === v;
-        if (k === "mode" && v !== "All") return item.mode === v;
-        if (k === "month" && typeof v === "number") return item.month === v;
-        if (k === "year" && typeof v === "number") return item.year === v;
-        if (k === "studentId" && typeof v === "object" && v.$in) return v.$in.includes(item.studentId);
         if (k === "$or" && Array.isArray(v)) {
           return v.some((cond) =>
             Object.entries(cond).every(([ck, cv]) =>
@@ -98,21 +93,39 @@ class InMemoryCollection {
     return { insertedId: _id };
   }
 
-  async updateOne(filter: Record<string, any>, update: Record<string, any>) {
+  async updateOne(filter: Record<string, any>, update: Record<string, any>, options: Record<string, any> = {}) {
     const item = await this.findOne(filter);
-    if (!item) return { matchedCount: 0, modifiedCount: 0 };
+    if (!item) {
+      if (options.upsert) {
+        const newDoc = { _id: new ObjectId(), ...filter, ...update.$set };
+        this.items.push(newDoc);
+        return { matchedCount: 0, modifiedCount: 1, upsertedId: newDoc._id };
+      }
+      return { matchedCount: 0, modifiedCount: 0 };
+    }
     if (update.$set) {
       Object.assign(item, update.$set);
     }
     return { matchedCount: 1, modifiedCount: 1 };
   }
 
-  async updateMany(filter: Record<string, any>, update: Record<string, any>) {
-    const items = await this.find(filter).toArray();
-    items.forEach((item) => {
-      if (update.$set) Object.assign(item, update.$set);
-    });
-    return { matchedCount: items.length, modifiedCount: items.length };
+  async bulkWrite(operations: any[]) {
+    let modifiedCount = 0;
+    let upsertedCount = 0;
+
+    for (const op of operations) {
+      if (op.updateOne) {
+        const res = await this.updateOne(
+          op.updateOne.filter,
+          op.updateOne.update,
+          { upsert: op.updateOne.upsert }
+        );
+        if (res.modifiedCount) modifiedCount++;
+        if (res.upsertedId) upsertedCount++;
+      }
+    }
+
+    return { modifiedCount, upsertedCount };
   }
 
   async deleteOne(filter: Record<string, any>) {
@@ -124,19 +137,6 @@ class InMemoryCollection {
     if (index === -1) return { deletedCount: 0 };
     this.items.splice(index, 1);
     return { deletedCount: 1 };
-  }
-
-  async deleteMany(filter: Record<string, any>) {
-    const initialLen = this.items.length;
-    InMemoryCollection.store[this.name] = this.items.filter(
-      (item) =>
-        !Object.entries(filter).every(([k, v]) => {
-          if (typeof v === "object" && v.$in) return v.$in.includes(item[k]);
-          if (v instanceof ObjectId) return item._id?.toString() === v.toString();
-          return item[k] === v;
-        })
-    );
-    return { deletedCount: initialLen - this.items.length };
   }
 
   async countDocuments(query: Record<string, any> = {}) {
@@ -159,7 +159,7 @@ export async function connectToDatabase(): Promise<{ client: any; db: any }> {
   try {
     const client = new MongoClient(MONGODB_URI, {
       maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000, // 5s timeout for Vercel serverless connection
+      serverSelectionTimeoutMS: 5000,
     });
 
     await client.connect();
@@ -171,19 +171,24 @@ export async function connectToDatabase(): Promise<{ client: any; db: any }> {
     // Create essential indexes asynchronously
     try {
       await db.collection("students").createIndex({ studentId: 1 }, { unique: true });
-      await db.collection("students").createIndex({ parentMobile: 1 });
       await db.collection("students").createIndex({ status: 1 });
+      await db.collection("students").createIndex({ batch: 1 });
 
-      await db.collection("payments").createIndex({ studentId: 1, month: 1, year: 1 }, { unique: true });
-      await db.collection("payments").createIndex({ paymentDate: -1 });
-
-      await db.collection("expenses").createIndex({ date: -1 });
+      await db.collection("attendance").createIndex(
+        { date: 1, batch: 1, studentId: 1 },
+        {
+          unique: true,
+          partialFilterExpression: { docType: "attendance" },
+        }
+      );
+      await db.collection("attendance").createIndex({ docType: 1, date: -1 });
+      await db.collection("attendance").createIndex({ studentId: 1, docType: 1 });
       await db.collection("admins").createIndex({ email: 1 }, { unique: true });
     } catch (err) {
       console.warn("MongoDB index creation warning:", err);
     }
 
-    console.log("Connected to MongoDB Native database.");
+    console.log("Connected to MongoDB Native database: sk_tutorials.");
     return { client, db };
   } catch (err) {
     console.warn(

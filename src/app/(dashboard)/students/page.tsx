@@ -5,74 +5,52 @@ import Link from "next/link";
 import {
   Users,
   Search,
-  Plus,
-  Trash2,
+  Filter,
+  UserCheck,
+  UserX,
+  Phone,
+  MessageSquare,
   Edit,
+  ArrowUpRight,
+  UserPlus,
+  X,
+  Check,
 } from "lucide-react";
-import { StatusBadge } from "@/components/shared/StatusBadge";
-import { WhatsAppButton } from "@/components/shared/WhatsAppButton";
-import { StudentModal } from "@/components/students/StudentModal";
-import { CollectFeeModal } from "@/components/students/CollectFeeModal";
-import { ReceiptModal } from "@/components/payments/ReceiptModal";
-import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import { Student, Payment } from "@/types";
 import { toast } from "sonner";
-
-const CLASSES = [
-  "All",
-  "Jr.Kg",
-  "Sr.Kg",
-  "Class 1",
-  "Class 2",
-  "Class 3",
-  "Class 4",
-  "Class 5",
-  "Class 6",
-  "Class 7",
-  "Class 8",
-  "Class 9",
-  "Class 10",
-];
+import { Student, BatchType } from "@/types";
+import { getContactMobile, generateTelLink } from "@/lib/phone";
+import { generateWhatsAppLink } from "@/lib/whatsapp";
 
 export default function StudentsPage() {
-  const [students, setStudents] = useState<any[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filters state
+  // Filters
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [classFilter, setClassFilter] = useState("All");
-  const [dueFilter, setDueFilter] = useState("All");
+  const [selectedBatch, setSelectedBatch] = useState("All");
+  const [selectedStatus, setSelectedStatus] = useState("Active");
 
-  // Selection for bulk actions
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-  // Modals
-  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
-  const [studentToEdit, setStudentToEdit] = useState<Student | null>(null);
-  const [studentForCollectFee, setStudentForCollectFee] = useState<Student | null>(null);
-  const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null);
-
-  // Confirm deletion dialog
-  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
-  const [bulkConfirmAction, setBulkConfirmAction] = useState<"delete" | "activate" | "deactivate" | null>(null);
+  // Batch assignment modal
+  const [assignStudent, setAssignStudent] = useState<Student | null>(null);
+  const [targetBatch, setTargetBatch] = useState<BatchType>("5-7");
+  const [updating, setUpdating] = useState(false);
 
   const fetchStudents = async () => {
-    setLoading(true);
     try {
-      const queryParams = new URLSearchParams({
+      setLoading(true);
+      const query = new URLSearchParams({
         search,
-        status: statusFilter,
-        class: classFilter,
-        dueFilter,
+        batch: selectedBatch,
+        status: selectedStatus,
       });
 
-      const res = await fetch(`/api/students?${queryParams.toString()}`);
+      const res = await fetch(`/api/students?${query.toString()}`);
       const json = await res.json();
       if (res.ok) {
-        setStudents(json.students || []);
+        setStudents(json);
       }
     } catch (err) {
+      console.error("Fetch students error:", err);
       toast.error("Failed to load students");
     } finally {
       setLoading(false);
@@ -81,418 +59,286 @@ export default function StudentsPage() {
 
   useEffect(() => {
     fetchStudents();
-  }, [search, statusFilter, classFilter, dueFilter]);
+  }, [search, selectedBatch, selectedStatus]);
 
-  // Helper to group siblings by parentMobile for consolidated WhatsApp messages
-  const getFamilyDues = (targetStudent: any) => {
-    const family = students.filter(
-      (s) => s.parentMobile === targetStudent.parentMobile
-    );
-    return family.map((s) => ({ student: s, dueInfo: s.dueInfo }));
-  };
+  // Handle batch assignment submit
+  const handleAssignBatch = async () => {
+    if (!assignStudent) return;
 
-  const toggleSelectAll = () => {
-    if (selectedIds.length === students.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(students.map((s) => s.studentId));
-    }
-  };
-
-  const toggleSelect = (studentId: string) => {
-    if (selectedIds.includes(studentId)) {
-      setSelectedIds(selectedIds.filter((id) => id !== studentId));
-    } else {
-      setSelectedIds([...selectedIds, studentId]);
-    }
-  };
-
-  const handleBulkAction = async (action: "delete" | "activate" | "deactivate") => {
-    if (selectedIds.length === 0) return;
     try {
-      const res = await fetch("/api/students/bulk", {
-        method: "POST",
+      setUpdating(true);
+      const res = await fetch("/api/students", {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, studentIds: selectedIds }),
+        body: JSON.stringify({
+          studentId: assignStudent.studentId,
+          batch: targetBatch,
+        }),
       });
-      const json = await res.json();
-      if (res.ok) {
-        toast.success(json.message);
-        setSelectedIds([]);
-        fetchStudents();
-      } else {
-        toast.error(json.error || "Action failed");
-      }
-    } catch (err) {
-      toast.error("Bulk action failed");
-    }
-  };
 
-  const handleDeleteSingle = async () => {
-    if (!studentToDelete) return;
-    try {
-      const res = await fetch(`/api/students/${studentToDelete._id}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        toast.success("Student deleted successfully");
-        fetchStudents();
-      } else {
-        toast.error("Delete failed");
-      }
-    } catch (err) {
-      toast.error("Delete error");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to update batch");
+
+      toast.success(`${assignStudent.name} assigned to Batch ${targetBatch}`);
+      setAssignStudent(null);
+      fetchStudents();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to assign batch");
+    } finally {
+      setUpdating(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5 pb-16">
+      {/* Top Banner Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-5 rounded-3xl shadow-soft">
         <div>
-          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-foreground flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-black text-foreground flex items-center gap-2">
             <Users className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-            <span>Student Directory</span>
+            <span>Student Management & Batch Assignment</span>
           </h1>
-          <p className="text-xs text-muted-foreground">
-            Manage tuition students, view dynamic fee statuses, and record payments
+          <p className="text-xs text-muted-foreground mt-0.5 font-medium">
+            Read from existing database `sk_tutorials.students` • Assign tuition batches
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setStudentToEdit(null);
-            setIsAddStudentOpen(true);
-          }}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm transition-all active:scale-95"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Student</span>
-        </button>
+        <span className="px-3.5 py-1.5 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-black self-start sm:self-auto border border-indigo-500/20">
+          {students.length} Students Listed
+        </span>
       </div>
 
-      {/* Filter and Search Toolbar */}
-      <div className="bg-card border border-border p-4 rounded-3xl shadow-soft space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Instant Search */}
-          <div className="relative sm:col-span-2">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      {/* Filter & Search Bar */}
+      <div className="bg-card border border-border rounded-3xl p-4 shadow-soft space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Search Input */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search Name, Parent, Mobile, ID..."
+              placeholder="Search student, parent, mobile, ID..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              suppressHydrationWarning
-              className="w-full pl-10 pr-4 py-2 text-xs sm:text-sm bg-muted/50 border border-border rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              className="w-full pl-9 pr-3 py-2 text-xs font-semibold bg-muted/60 border border-border rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
           </div>
 
-          {/* Due Status Filter */}
-          <div>
+          {/* Batch Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-muted-foreground whitespace-nowrap">Batch:</span>
             <select
-              value={dueFilter}
-              onChange={(e) => setDueFilter(e.target.value)}
-              suppressHydrationWarning
-              className="w-full px-3 py-2 text-xs sm:text-sm bg-muted/50 border border-border rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-medium"
+              value={selectedBatch}
+              onChange={(e) => setSelectedBatch(e.target.value)}
+              className="w-full px-3 py-2 text-xs font-bold bg-muted/60 border border-border rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             >
-              <option value="All">All Due Statuses</option>
-              <option value="PAID">Paid Only</option>
-              <option value="DUE_TODAY">Due Today Only</option>
-              <option value="OVERDUE">Overdue Only</option>
+              <option value="All">All Batches</option>
+              <option value="5-7">5–7 Batch</option>
+              <option value="7-9">7–9 Batch</option>
+              <option value="Unassigned">Unassigned</option>
             </select>
           </div>
 
-          {/* Class Filter */}
-          <div>
+          {/* Status Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-muted-foreground whitespace-nowrap">Status:</span>
             <select
-              value={classFilter}
-              onChange={(e) => setClassFilter(e.target.value)}
-              suppressHydrationWarning
-              className="w-full px-3 py-2 text-xs sm:text-sm bg-muted/50 border border-border rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-medium"
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="w-full px-3 py-2 text-xs font-bold bg-muted/60 border border-border rounded-2xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             >
-              {CLASSES.map((c) => (
-                <option key={c} value={c}>
-                  {c === "All" ? "All Classes" : c}
-                </option>
-              ))}
+              <option value="Active">Active Only</option>
+              <option value="Inactive">Inactive Only</option>
+              <option value="All">All Statuses</option>
             </select>
           </div>
         </div>
-
-        {/* Bulk Action Bar */}
-        {selectedIds.length > 0 && (
-          <div className="flex items-center justify-between p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-xs">
-            <span className="font-semibold text-indigo-700 dark:text-indigo-300">
-              {selectedIds.length} student(s) selected
-            </span>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setBulkConfirmAction("activate")}
-                className="px-3 py-1 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-all"
-              >
-                Activate
-              </button>
-              <button
-                onClick={() => setBulkConfirmAction("deactivate")}
-                className="px-3 py-1 rounded-xl bg-amber-600 text-white font-bold hover:bg-amber-700 transition-all"
-              >
-                Deactivate
-              </button>
-              <button
-                onClick={() => setBulkConfirmAction("delete")}
-                className="px-3 py-1 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 transition-all"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Student List View */}
+      {/* Student Grid Cards */}
       {loading ? (
-        <div className="space-y-3 animate-pulse">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-16 bg-card border border-border rounded-2xl" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 animate-pulse">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="h-40 bg-card border border-border rounded-3xl" />
           ))}
         </div>
       ) : students.length === 0 ? (
-        <div className="text-center py-12 bg-card border border-dashed border-border rounded-3xl">
-          <p className="text-base font-bold text-foreground">No students found</p>
-          <p className="text-xs text-muted-foreground mt-1">Try adjusting your search or filters</p>
+        <div className="text-center py-12 border border-dashed border-border rounded-3xl bg-card">
+          <Users className="w-12 h-12 text-muted-foreground mx-auto mb-2 opacity-50" />
+          <p className="font-extrabold text-base text-foreground">No students match search filter</p>
+          <p className="text-xs text-muted-foreground mt-1">Try clearing search filters.</p>
         </div>
       ) : (
-        <div>
-          {/* Desktop Table View */}
-          <div className="hidden md:block bg-card border border-border rounded-3xl overflow-hidden shadow-soft">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  <th className="p-4 w-10">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.length === students.length && students.length > 0}
-                      onChange={toggleSelectAll}
-                      suppressHydrationWarning
-                      className="rounded border-border"
-                    />
-                  </th>
-                  <th className="p-4">Student</th>
-                  <th className="p-4">Class</th>
-                  <th className="p-4">Fee / Mo</th>
-                  <th className="p-4">Parent Details</th>
-                  <th className="p-4">Fee Status</th>
-                  <th className="p-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60 text-xs">
-                {students.map((student) => (
-                  <tr key={student._id} className="hover:bg-muted/30 transition-colors">
-                    <td className="p-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(student.studentId)}
-                        onChange={() => toggleSelect(student.studentId)}
-                        suppressHydrationWarning
-                        className="rounded border-border"
-                      />
-                    </td>
-                    <td className="p-4">
-                      <Link
-                        href={`/students/${student._id}`}
-                        className="font-bold text-sm text-foreground hover:text-indigo-600 transition-colors"
-                      >
-                        {student.name}
-                      </Link>
-                      <p className="text-[11px] text-muted-foreground">{student.studentId}</p>
-                    </td>
-                    <td className="p-4 font-semibold text-foreground">{student.class}</td>
-                    <td className="p-4 font-bold text-foreground">₹{student.monthlyFee}</td>
-                    <td className="p-4">
-                      <p className="font-semibold text-foreground">{student.parentName}</p>
-                      <p className="text-[10px] text-muted-foreground">{student.parentMobile}</p>
-                    </td>
-                    <td className="p-4">
-                      <StatusBadge status={student.dueInfo?.status} size="sm" />
-                      {student.dueInfo?.totalPendingAmount > 0 && (
-                        <p className="text-[10px] text-rose-500 font-semibold mt-0.5">
-                          Pending: ₹{student.dueInfo.totalPendingAmount}
-                        </p>
-                      )}
-                    </td>
-                    <td className="p-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => {
-                            setStudentForCollectFee(student);
-                          }}
-                          className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white font-semibold text-[11px] hover:bg-emerald-700 transition-all active:scale-95"
-                          title="Collect Fee"
-                        >
-                          Collect
-                        </button>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          {students.map((student) => {
+            const contactMobile = getContactMobile(student);
+            const telLink = generateTelLink(contactMobile);
+            const waUrl = generateWhatsAppLink(contactMobile, student.name);
 
-                        <WhatsAppButton
-                          parentMobile={student.parentMobile}
-                          studentDues={getFamilyDues(student)}
-                          size="sm"
-                          label="WA"
-                        />
-
-                        <button
-                          onClick={() => {
-                            setStudentToEdit(student);
-                            setIsAddStudentOpen(true);
-                          }}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-indigo-600 hover:bg-muted transition-colors"
-                          title="Edit Student"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          onClick={() => setStudentToDelete(student)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-600 hover:bg-muted transition-colors"
-                          title="Delete Student"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Responsive Card Grid */}
-          <div className="md:hidden space-y-3">
-            {students.map((student) => (
+            return (
               <div
-                key={student._id}
-                className="bg-card border border-border p-4 rounded-3xl shadow-soft space-y-3"
+                key={student.studentId}
+                className="bg-card border border-border rounded-3xl p-5 shadow-soft hover:border-indigo-500/50 transition-all space-y-3.5 flex flex-col justify-between"
               >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <Link
-                      href={`/students/${student._id}`}
-                      className="font-extrabold text-base text-foreground hover:text-indigo-600"
-                    >
-                      {student.name}
-                    </Link>
-                    <p className="text-xs text-muted-foreground">
-                      {student.studentId} • {student.class}
+                <div>
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span className="text-[11px] font-bold text-muted-foreground">
+                        {student.studentId} • Class {student.class}
+                      </span>
+                      <h3 className="text-lg font-black text-foreground leading-tight">
+                        {student.name}
+                      </h3>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1">
+                      {student.status === "Active" ? (
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-black border border-emerald-500/20">
+                          Active
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-bold">
+                          Inactive
+                        </span>
+                      )}
+
+                      {student.batch ? (
+                        <span className="px-2.5 py-0.5 rounded-full bg-indigo-600 text-white text-[10px] font-black">
+                          Batch {student.batch}
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-bold">
+                          No Batch
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground space-y-1 mt-2">
+                    <p>
+                      <strong>Parent:</strong> {student.parentName} ({student.parentMobile || "N/A"})
                     </p>
-                  </div>
-                  <StatusBadge status={student.dueInfo?.status} size="sm" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs p-3 rounded-2xl bg-muted/40 border border-border/40">
-                  <div>
-                    <span className="text-muted-foreground text-[10px] block">Monthly Fee:</span>
-                    <span className="font-bold text-foreground">₹{student.monthlyFee}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground text-[10px] block">Parent:</span>
-                    <span className="font-bold text-foreground">{student.parentName}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground text-[10px] block">Mobile:</span>
-                    <span className="font-bold text-foreground">{student.parentMobile}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground text-[10px] block">Pending Due:</span>
-                    <span className="font-bold text-rose-600 dark:text-rose-400">
-                      ₹{student.dueInfo?.totalPendingAmount || 0}
-                    </span>
+                    {student.admissionDate && (
+                      <p className="text-[11px]">
+                        <strong>Admitted:</strong> {student.admissionDate}
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center justify-between pt-3 border-t border-border/60">
+                  <button
+                    onClick={() => {
+                      setAssignStudent(student);
+                      setTargetBatch((student.batch as BatchType) || "5-7");
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    <Edit className="w-3.5 h-3.5" />
+                    <span>Assign Batch</span>
+                  </button>
+
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setStudentForCollectFee(student)}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white font-bold text-xs shadow-xs"
+                    {telLink && (
+                      <a
+                        href={telLink}
+                        className="p-2 bg-blue-600/10 text-blue-600 rounded-xl hover:bg-blue-600/20"
+                        title="Call Parent"
+                      >
+                        <Phone className="w-4 h-4" />
+                      </a>
+                    )}
+                    {waUrl && (
+                      <a
+                        href={waUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 bg-emerald-600/10 text-emerald-600 rounded-xl hover:bg-emerald-600/20"
+                        title="WhatsApp Parent"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </a>
+                    )}
+                    <Link
+                      href={`/students/${student.studentId}`}
+                      className="p-2 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-xs"
+                      title="View Student Profile"
                     >
-                      Collect
-                    </button>
-                    <WhatsAppButton
-                      parentMobile={student.parentMobile}
-                      studentDues={getFamilyDues(student)}
-                      size="sm"
-                      label="WhatsApp"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => {
-                        setStudentToEdit(student);
-                        setIsAddStudentOpen(true);
-                      }}
-                      className="p-2 rounded-xl text-muted-foreground hover:bg-muted"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setStudentToDelete(student)}
-                      className="p-2 rounded-xl text-muted-foreground hover:text-rose-600 hover:bg-muted"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <ArrowUpRight className="w-4 h-4" />
+                    </Link>
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Modals */}
-      <StudentModal
-        isOpen={isAddStudentOpen}
-        onClose={() => {
-          setIsAddStudentOpen(false);
-          setStudentToEdit(null);
-        }}
-        onSuccess={fetchStudents}
-        studentToEdit={studentToEdit}
-      />
+      {/* BATCH ASSIGNMENT MODAL */}
+      {assignStudent && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-card border border-border rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="font-black text-lg text-foreground">Assign Tuition Batch</h3>
+              <button
+                onClick={() => setAssignStudent(null)}
+                className="p-1 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      <CollectFeeModal
-        isOpen={!!studentForCollectFee}
-        onClose={() => setStudentForCollectFee(null)}
-        onSuccess={(payment) => {
-          fetchStudents();
-          setReceiptPayment(payment);
-        }}
-        student={studentForCollectFee}
-      />
+            <div className="space-y-2 text-xs">
+              <p className="font-bold text-sm text-foreground">{assignStudent.name}</p>
+              <p className="text-muted-foreground">
+                Student ID: {assignStudent.studentId} • Class {assignStudent.class}
+              </p>
 
-      <ReceiptModal
-        isOpen={!!receiptPayment}
-        onClose={() => setReceiptPayment(null)}
-        payment={receiptPayment}
-      />
+              <div className="pt-2 space-y-2">
+                <label className="font-extrabold text-foreground block">Select Tuition Batch:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setTargetBatch("5-7")}
+                    className={`p-3 rounded-2xl border text-xs font-black transition-all ${
+                      targetBatch === "5-7"
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
+                        : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                    }`}
+                  >
+                    5–7 Batch
+                  </button>
 
-      <ConfirmDialog
-        isOpen={!!studentToDelete}
-        title="Delete Student?"
-        description={`Are you sure you want to delete ${studentToDelete?.name}? All associated fee payment history will be permanently deleted.`}
-        onConfirm={handleDeleteSingle}
-        onClose={() => setStudentToDelete(null)}
-      />
+                  <button
+                    onClick={() => setTargetBatch("7-9")}
+                    className={`p-3 rounded-2xl border text-xs font-black transition-all ${
+                      targetBatch === "7-9"
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
+                        : "bg-muted text-muted-foreground border-border hover:bg-muted/80"
+                    }`}
+                  >
+                    7–9 Batch
+                  </button>
+                </div>
+              </div>
+            </div>
 
-      <ConfirmDialog
-        isOpen={!!bulkConfirmAction}
-        title={`Bulk ${bulkConfirmAction?.toUpperCase()}?`}
-        description={`Are you sure you want to ${bulkConfirmAction} ${selectedIds.length} selected student(s)?`}
-        onConfirm={() => {
-          if (bulkConfirmAction) handleBulkAction(bulkConfirmAction);
-        }}
-        onClose={() => setBulkConfirmAction(null)}
-      />
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setAssignStudent(null)}
+                className="px-4 py-2 rounded-2xl bg-muted text-muted-foreground font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAssignBatch}
+                disabled={updating}
+                className="px-5 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs shadow-md disabled:opacity-50"
+              >
+                {updating ? "Updating..." : "Save Batch"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
