@@ -16,6 +16,7 @@ import {
   Search,
   CheckCircle2,
   Share2,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -97,7 +98,7 @@ export default function ReportsPage() {
     }
   };
 
-  // Share PDF Report (Native iOS Share Sheet & Web Share API)
+  // Share PDF Report (Native iOS Share Sheet with WhatsApp Caption)
   const sharePDF = async () => {
     if (!reportData) {
       toast.error("No report data available to share");
@@ -106,7 +107,9 @@ export default function ReportsPage() {
 
     try {
       setPdfGenerating(true);
-      const { generateAttendancePDF } = await import("@/lib/pdfReportGenerator");
+      const { generateAttendancePDF, generateWhatsAppCaption } = await import(
+        "@/lib/pdfReportGenerator"
+      );
       const monthName = new Date(year, month - 1, 1).toLocaleString("en-IN", { month: "long" });
       const pdf = await generateAttendancePDF(reportData, {
         month,
@@ -118,26 +121,33 @@ export default function ReportsPage() {
 
       const filename = `SK_Tutorials_Attendance_${year}_${month}.pdf`;
       const pdfBlob = pdf.output("blob");
+      const whatsappCaption = generateWhatsAppCaption(reportData, month, year);
+
+      const file = new File([pdfBlob], filename, { type: "application/pdf" });
 
       if (
         typeof navigator !== "undefined" &&
         navigator.share &&
         navigator.canShare &&
         navigator.canShare({
-          files: [new File([pdfBlob], filename, { type: "application/pdf" })],
+          files: [file],
         })
       ) {
-        const file = new File([pdfBlob], filename, { type: "application/pdf" });
         await navigator.share({
-          title: `SK Tutorials Attendance Report — ${monthName} ${year}`,
-          text: `Attendance report for ${monthName} ${year} from Prof. Fahim Sir (SK Tutorials).`,
+          title: `*📊 ${monthName} ${year} Attendance Report – SK Tutorial*`,
+          text: whatsappCaption,
           files: [file],
         });
-        toast.success("Report shared successfully!");
+        toast.success("Report shared with WhatsApp caption!");
       } else {
-        // Fallback to direct download
+        // Fallback to direct download + copy caption to clipboard for WhatsApp Web
         pdf.save(filename);
-        toast.success("PDF report downloaded to your device");
+        if (typeof navigator !== "undefined" && navigator.clipboard) {
+          await navigator.clipboard.writeText(whatsappCaption);
+          toast.success("PDF downloaded and WhatsApp caption copied to clipboard!");
+        } else {
+          toast.success("PDF report downloaded to your device");
+        }
       }
     } catch (error: any) {
       if (error?.name !== "AbortError") {
@@ -146,6 +156,28 @@ export default function ReportsPage() {
       }
     } finally {
       setPdfGenerating(false);
+    }
+  };
+
+  // Copy Formatted WhatsApp Caption Text
+  const copyWhatsAppCaption = async () => {
+    if (!reportData) {
+      toast.error("No report data available to copy");
+      return;
+    }
+
+    try {
+      const { generateWhatsAppCaption } = await import("@/lib/pdfReportGenerator");
+      const caption = generateWhatsAppCaption(reportData, month, year);
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(caption);
+        toast.success("WhatsApp message caption copied to clipboard!");
+      } else {
+        toast.error("Clipboard access not available");
+      }
+    } catch (err) {
+      console.error("Copy caption error:", err);
+      toast.error("Failed to copy WhatsApp caption");
     }
   };
 
@@ -230,7 +262,7 @@ export default function ReportsPage() {
             )}
           </button>
 
-          {/* Share PDF Button (iOS native Share Sheet support) */}
+          {/* Share PDF Button (iOS native Share Sheet support with WhatsApp caption) */}
           <button
             onClick={sharePDF}
             disabled={pdfGenerating || loading}
@@ -239,6 +271,17 @@ export default function ReportsPage() {
           >
             <Share2 className="w-4 h-4" />
             <span className="hidden sm:inline">Share PDF</span>
+          </button>
+
+          {/* Copy WhatsApp Caption Button */}
+          <button
+            onClick={copyWhatsAppCaption}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-muted hover:bg-muted/80 text-foreground font-extrabold text-xs rounded-2xl border border-border shadow-sm transition-all active:scale-95"
+            title="Copy formatted WhatsApp message caption to clipboard"
+          >
+            <Copy className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden xl:inline">Copy WhatsApp Text</span>
           </button>
 
           {/* Export Excel / CSV Button */}

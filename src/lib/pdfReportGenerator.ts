@@ -504,3 +504,92 @@ export async function generateAttendancePDF(
 
   return pdf;
 }
+
+/**
+ * Generates the WhatsApp share caption dynamically using the PDF report data and metrics.
+ */
+export function generateWhatsAppCaption(
+  reportData: any,
+  month: number,
+  year: number
+): string {
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ];
+  const monthName = month ? monthNames[month - 1] : monthNames[new Date().getMonth()];
+
+  const rawList: any[] = reportData?.studentRows || reportData?.students || [];
+
+  const studentList = rawList.map((st: any) => ({
+    class: st.class || "Other",
+    conducted: st.conducted ?? st.totalConducted ?? 0,
+    present: st.present ?? st.presentCount ?? 0,
+    absent: st.absent ?? st.absentCount ?? 0,
+  }));
+
+  const classMap = new Map<string, { count: number; cond: number; pres: number; abs: number }>();
+  studentList.forEach((s) => {
+    const cls = s.class;
+    if (!classMap.has(cls)) {
+      classMap.set(cls, { count: 0, cond: 0, pres: 0, abs: 0 });
+    }
+    const item = classMap.get(cls)!;
+    item.count += 1;
+    item.cond += s.conducted;
+    item.pres += s.present;
+    item.abs += s.absent;
+  });
+
+  const classStatList = Array.from(classMap.entries()).map(([cls, stat]) => {
+    const rate = stat.cond > 0 ? (stat.pres / stat.cond) * 100 : 0;
+    const absRate = stat.cond > 0 ? (stat.abs / stat.cond) * 100 : 0;
+    return {
+      className: cls,
+      rate,
+      absRate,
+      cond: stat.cond,
+    };
+  });
+
+  const activeStats = classStatList.filter((c) => c.cond > 0);
+  const statsToUse = activeStats.length > 0 ? activeStats : classStatList;
+
+  // Best Attendance
+  const sortedByRate = [...statsToUse].sort((a, b) => b.rate - a.rate);
+  const bestClass = sortedByRate[0] || { className: "Class 9", rate: 95.0 };
+  const secondBestClass = sortedByRate.length > 1 ? sortedByRate[1] : null;
+
+  // Needs Attention
+  const sortedAscending = [...statsToUse].sort((a, b) => a.rate - b.rate);
+  const lowestClass = sortedAscending[0] || { className: "Class 7", rate: 70.0 };
+
+  // Most Absences
+  const sortedByAbs = [...statsToUse].sort((a, b) => b.absRate - a.absRate);
+  const mostAbsentClass = sortedByAbs[0] || { className: "Class 6", absRate: 20.0 };
+
+  return `*📊 ${monthName} ${year} Attendance Report – SK Tutorial*
+
+Dear Parents,
+Please find attached the Grade-wise & Student-wise Attendance Report for the month of ${monthName} ${year}.
+
+✅ Highlights:
+
+🏆 Best Attendance: ${bestClass.className} (${bestClass.rate.toFixed(1)}%)
+${secondBestClass ? `\n🌟 Strong Performance: ${secondBestClass.className} (${secondBestClass.rate.toFixed(1)}%)\n` : ""}
+⚠️ Needs Attention: ${lowestClass.className} (${lowestClass.rate.toFixed(1)}%)
+
+🚫 Most Absences: ${mostAbsentClass.className} (${mostAbsentClass.absRate.toFixed(1)}%)
+
+⏰ Regular Attendance Concern: Consistent attendance is vital for academic progress and concept mastery.
+
+*We kindly request parents to encourage regular attendance and punctuality, especially for students in Std 5th to 7th, where irregular attendance is affecting learning continuity.*
+
+Consistent attendance plays a vital role in academic performance, discipline, and concept clarity.
+
+📎 Detailed report attached above.
+
+*Regards* ,
+*Prof. Fahim Sir [Proprietor]*
+*SK Tutorial*`;
+}
