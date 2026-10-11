@@ -183,7 +183,7 @@ export default function StudentsPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <span className="text-[11px] font-bold text-muted-foreground">
-                        {student.studentId} • Class {student.class}
+                        {student.studentId} • {student.class}
                       </span>
                       <h3 className="text-lg font-black text-foreground leading-tight">
                         {student.name}
@@ -290,7 +290,7 @@ export default function StudentsPage() {
             <div className="space-y-2 text-xs">
               <p className="font-bold text-sm text-foreground">{assignStudent.name}</p>
               <p className="text-muted-foreground">
-                Student ID: {assignStudent.studentId} • Class {assignStudent.class}
+                Student ID: {assignStudent.studentId} • {assignStudent.class}
               </p>
 
               <div className="pt-2 space-y-2">

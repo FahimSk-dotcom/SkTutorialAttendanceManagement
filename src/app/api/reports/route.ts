@@ -4,6 +4,8 @@ import { getAuthenticatedAdmin } from "@/lib/auth";
 import { getDaysInMonth, getKolkataToday } from "@/lib/date";
 import { getContactMobile, generateTelLink } from "@/lib/phone";
 import { generateWhatsAppLink, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/whatsapp";
+import { DEFAULT_SETTINGS } from "@/app/api/settings/route";
+import { getEffectiveBatch, formatClassDisplay, getClassSortRank } from "@/lib/classUtils";
 
 export async function GET(req: Request) {
   try {
@@ -21,7 +23,7 @@ export async function GET(req: Request) {
     const db = await getDb();
     const todayStr = getKolkataToday();
 
-    // Fetch settings for thresholds & templates
+    // Fetch settings for thresholds, templates & class-to-batch mappings
     const settingsDoc = await db
       .collection("attendance")
       .findOne({ docType: "settings", key: "app_settings" });
@@ -29,12 +31,37 @@ export async function GET(req: Request) {
     const consThreshold = settingsDoc?.consecutiveAbsenceThreshold || 3;
     const waTemplate = settingsDoc?.whatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE;
 
-    // Fetch students
-    const students = await db
+    const batch1Classes: string[] = settingsDoc?.batch1Classes || DEFAULT_SETTINGS.batch1Classes;
+    const batch2Classes: string[] = settingsDoc?.batch2Classes || DEFAULT_SETTINGS.batch2Classes;
+
+    // Fetch all students and map effective batch based on class-to-batch settings
+    const rawStudents = await db
       .collection("students")
-      .find(batchFilter === "All" ? {} : { batch: batchFilter })
+      .find({})
       .sort({ studentId: 1 })
       .toArray();
+
+    const allMappedStudents = rawStudents.map((st: any) => {
+      const effectiveBatch = getEffectiveBatch(st, batch1Classes, batch2Classes);
+      return {
+        ...st,
+        batch: effectiveBatch,
+        formattedClass: formatClassDisplay(st.class),
+      };
+    });
+
+    // Sort students systematically: Class level (Jr.Kg -> 10) then name alphabetically
+    allMappedStudents.sort((a: any, b: any) => {
+      const rankDiff = getClassSortRank(a.class) - getClassSortRank(b.class);
+      if (rankDiff !== 0) return rankDiff;
+      return a.name.localeCompare(b.name);
+    });
+
+    // Apply batch filter if specified
+    const filteredStudents =
+      batchFilter === "All"
+        ? allMappedStudents
+        : allMappedStudents.filter((st: any) => st.batch === batchFilter);
 
     // Fetch holidays
     const holidays = await db
@@ -65,7 +92,6 @@ export async function GET(req: Request) {
       // Monthly matrix report
       const mStr = String(month).padStart(2, "0");
       const monthPrefix = `${year}-${mStr}`;
-      const daysInMonth = getDaysInMonth(year, month);
 
       // Unique dates conducted in this month for specified batch
       const monthlyRecords = validRecords.filter((r: any) => {
@@ -76,7 +102,7 @@ export async function GET(req: Request) {
 
       const conductedDates = Array.from(new Set(monthlyRecords.map((r: any) => r.date))).sort();
 
-      const studentRows = students.map((st: any) => {
+      const studentRows = filteredStudents.map((st: any) => {
         const stRecs = monthlyRecords.filter((r: any) => r.studentId === st.studentId);
         const cond = stRecs.length;
         const pres = stRecs.filter((r: any) => r.status === "present").length;
@@ -92,8 +118,8 @@ export async function GET(req: Request) {
         return {
           studentId: st.studentId,
           name: st.name,
-          class: st.class,
-          batch: st.batch || "Unassigned",
+          class: st.formattedClass,
+          batch: st.batch,
           conducted: cond,
           present: pres,
           absent: abs,
@@ -113,8 +139,8 @@ export async function GET(req: Request) {
 
     if (reportType === "batch") {
       // Batch comparison report
-      const batch57Students = students.filter((s: any) => s.batch === "5-7");
-      const batch79Students = students.filter((s: any) => s.batch === "7-9");
+      const batch57Students = allMappedStudents.filter((s: any) => s.batch === "5-7");
+      const batch79Students = allMappedStudents.filter((s: any) => s.batch === "7-9");
 
       const recs57 = validRecords.filter((r: any) => r.batch === "5-7");
       const recs79 = validRecords.filter((r: any) => r.batch === "7-9");
@@ -151,7 +177,7 @@ export async function GET(req: Request) {
     }
 
     // Default summary student report with alerts
-    const studentReportList = students.map((student: any) => {
+    const studentReportList = filteredStudents.map((student: any) => {
       const stRecs = (studentRecordsMap.get(student.studentId) || []).sort(
         (a, b) => b.date.localeCompare(a.date)
       );
@@ -184,8 +210,8 @@ export async function GET(req: Request) {
       return {
         studentId: student.studentId,
         name: student.name,
-        class: student.class,
-        batch: student.batch || "Unassigned",
+        class: student.formattedClass,
+        batch: student.batch,
         status: student.status,
         parentName: student.parentName,
         contactMobile,

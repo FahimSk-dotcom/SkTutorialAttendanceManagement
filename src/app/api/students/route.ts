@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongodb";
 import { getAuthenticatedAdmin } from "@/lib/auth";
 import { DEFAULT_SETTINGS } from "@/app/api/settings/route";
+import { getEffectiveBatch, formatClassDisplay, getClassSortRank } from "@/lib/classUtils";
 
 export async function GET(req: Request) {
   try {
@@ -51,18 +52,19 @@ export async function GET(req: Request) {
 
     // Map each student's effective batch based on explicit student.batch or class mapping
     const mappedStudents = allStudents.map((st: any) => {
-      let effectiveBatch = st.batch;
-      if (!effectiveBatch) {
-        if (batch1Classes.includes(st.class)) {
-          effectiveBatch = "5-7";
-        } else if (batch2Classes.includes(st.class)) {
-          effectiveBatch = "7-9";
-        }
-      }
+      const effectiveBatch = getEffectiveBatch(st, batch1Classes, batch2Classes);
       return {
         ...st,
-        batch: effectiveBatch || "",
+        class: formatClassDisplay(st.class),
+        batch: effectiveBatch === "Unassigned" ? "" : effectiveBatch,
       };
+    });
+
+    // Sort students systematically: Class level (Jr.Kg -> 10) then name alphabetically
+    mappedStudents.sort((a: any, b: any) => {
+      const rankDiff = getClassSortRank(a.class) - getClassSortRank(b.class);
+      if (rankDiff !== 0) return rankDiff;
+      return a.name.localeCompare(b.name);
     });
 
     // Filter by batch if requested

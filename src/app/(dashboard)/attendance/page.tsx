@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { getKolkataToday } from "@/lib/date";
 import { Student, BatchType, AttendanceStatus, AbsenteeInfo, ALL_CLASSES } from "@/types";
+import { getClassSortRank } from "@/lib/classUtils";
 
 function AttendanceContent() {
   const searchParams = useSearchParams();
@@ -75,11 +76,11 @@ function AttendanceContent() {
 
       // Sort students systematically: Class order -> Name alphabetically
       const sortedStudents = [...studentsData].sort((a, b) => {
-        const classIndexA = ALL_CLASSES.indexOf(a.class as any);
-        const classIndexB = ALL_CLASSES.indexOf(b.class as any);
+        const classRankA = getClassSortRank(a.class);
+        const classRankB = getClassSortRank(b.class);
 
-        if (classIndexA !== classIndexB) {
-          return (classIndexA === -1 ? 99 : classIndexA) - (classIndexB === -1 ? 99 : classIndexB);
+        if (classRankA !== classRankB) {
+          return classRankA - classRankB;
         }
         return a.name.localeCompare(b.name);
       });

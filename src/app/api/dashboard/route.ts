@@ -6,6 +6,7 @@ import { getContactMobile, generateTelLink } from "@/lib/phone";
 import { generateWhatsAppLink, DEFAULT_WHATSAPP_TEMPLATE } from "@/lib/whatsapp";
 import { AbsenteeInfo, BatchStats } from "@/types";
 import { DEFAULT_SETTINGS } from "@/app/api/settings/route";
+import { getEffectiveBatch, formatClassDisplay, getClassSortRank } from "@/lib/classUtils";
 
 export async function GET() {
   try {
@@ -40,17 +41,11 @@ export async function GET() {
       .toArray();
 
     const activeStudents = rawActiveStudents.map((st: any) => {
-      let effectiveBatch = st.batch;
-      if (!effectiveBatch) {
-        if (batch1Classes.includes(st.class)) {
-          effectiveBatch = "5-7";
-        } else if (batch2Classes.includes(st.class)) {
-          effectiveBatch = "7-9";
-        }
-      }
+      const effectiveBatch = getEffectiveBatch(st, batch1Classes, batch2Classes);
       return {
         ...st,
-        batch: effectiveBatch || "",
+        class: formatClassDisplay(st.class),
+        batch: effectiveBatch === "Unassigned" ? "" : effectiveBatch,
       };
     });
 

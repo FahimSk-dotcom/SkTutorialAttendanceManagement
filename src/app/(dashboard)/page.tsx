@@ -446,7 +446,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="font-bold text-xs text-foreground">{item.student.name}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      {item.student.studentId} • Class {item.student.class} ({item.student.batch || "5-7"})
+                      {item.student.studentId} • {item.student.class} ({item.student.batch || "5-7"})
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -500,7 +500,7 @@ export default function DashboardPage() {
                   <div>
                     <p className="font-bold text-xs text-foreground">{item.student.name}</p>
                     <p className="text-[10px] text-muted-foreground">
-                      {item.student.studentId} • Class {item.student.class}
+                      {item.student.studentId} • {item.student.class}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">

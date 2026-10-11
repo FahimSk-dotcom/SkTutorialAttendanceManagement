@@ -15,6 +15,7 @@ import {
   Users,
   Search,
   CheckCircle2,
+  Share2,
 } from "lucide-react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -29,6 +30,7 @@ export default function ReportsPage() {
   const [batchFilter, setBatchFilter] = useState<string>("All");
 
   const [loading, setLoading] = useState<boolean>(true);
+  const [pdfGenerating, setPdfGenerating] = useState<boolean>(false);
   const [reportData, setReportData] = useState<any>(null);
 
   const fetchReport = async () => {
@@ -57,6 +59,95 @@ export default function ReportsPage() {
   useEffect(() => {
     fetchReport();
   }, [activeTab, month, year, batchFilter]);
+
+  // Download Executive PDF Report
+  const downloadPDF = async () => {
+    if (!reportData) {
+      toast.error("No report data available to export");
+      return;
+    }
+
+    try {
+      setPdfGenerating(true);
+      const { generateAttendancePDF } = await import("@/lib/pdfReportGenerator");
+      const monthName = new Date(year, month - 1, 1).toLocaleString("en-IN", { month: "long" });
+      const pdf = await generateAttendancePDF(reportData, {
+        month,
+        year,
+        batchFilter,
+        activeTab,
+        title:
+          activeTab === "monthly"
+            ? `Monthly Attendance Report — ${monthName} ${year}`
+            : activeTab === "low"
+            ? "Low Attendance Alert Report (<75%)"
+            : activeTab === "consecutive"
+            ? "Consecutive Absence Alert Report (≥3 Days)"
+            : `Student Attendance Summary Report — ${year}`,
+      });
+
+      const filename = `SK_Tutorials_Attendance_${year}_${month}_${activeTab}.pdf`;
+      pdf.save(filename);
+      toast.success("Executive PDF report downloaded successfully!");
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      toast.error("Failed to generate PDF. Please try again.");
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
+
+  // Share PDF Report (Native iOS Share Sheet & Web Share API)
+  const sharePDF = async () => {
+    if (!reportData) {
+      toast.error("No report data available to share");
+      return;
+    }
+
+    try {
+      setPdfGenerating(true);
+      const { generateAttendancePDF } = await import("@/lib/pdfReportGenerator");
+      const monthName = new Date(year, month - 1, 1).toLocaleString("en-IN", { month: "long" });
+      const pdf = await generateAttendancePDF(reportData, {
+        month,
+        year,
+        batchFilter,
+        activeTab,
+        title: `Monthly Attendance Report — ${monthName} ${year}`,
+      });
+
+      const filename = `SK_Tutorials_Attendance_${year}_${month}.pdf`;
+      const pdfBlob = pdf.output("blob");
+
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.share &&
+        navigator.canShare &&
+        navigator.canShare({
+          files: [new File([pdfBlob], filename, { type: "application/pdf" })],
+        })
+      ) {
+        const file = new File([pdfBlob], filename, { type: "application/pdf" });
+        await navigator.share({
+          title: `SK Tutorials Attendance Report — ${monthName} ${year}`,
+          text: `Attendance report for ${monthName} ${year} from Prof. Fahim Sir (SK Tutorials).`,
+          files: [file],
+        });
+        toast.success("Report shared successfully!");
+      } else {
+        // Fallback to direct download
+        pdf.save(filename);
+        toast.success("PDF report downloaded to your device");
+      }
+    } catch (error: any) {
+      if (error?.name !== "AbortError") {
+        console.error("Error sharing PDF:", error);
+        toast.error("Failed to share PDF.");
+      }
+    } finally {
+      setPdfGenerating(false);
+    }
+  };
 
   // Export to CSV / Excel
   const exportToExcel = () => {
@@ -107,24 +198,60 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6 pb-16">
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-5 sm:p-6 rounded-3xl shadow-soft">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-card border border-border p-5 sm:p-6 rounded-3xl shadow-soft">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-foreground flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
             <span>Attendance Reports & Analytics Suite</span>
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5 font-medium">
-            Monthly matrix, batch comparisons, low attendance alerts & CSV/Excel export
+            Monthly matrix, batch comparisons, low attendance alerts & executive PDF export
           </p>
         </div>
 
-        <button
-          onClick={exportToExcel}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-2xl shadow-sm transition-all active:scale-95 self-start sm:self-auto"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>Export Excel / CSV</span>
-        </button>
+        {/* Action Buttons: PDF Download, Share & Excel */}
+        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          {/* Download PDF Button */}
+          <button
+            onClick={downloadPDF}
+            disabled={pdfGenerating || loading}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs rounded-2xl shadow-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {pdfGenerating ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Generating PDF...</span>
+              </>
+            ) : (
+              <>
+                <FileText className="w-4 h-4" />
+                <span>Download PDF</span>
+              </>
+            )}
+          </button>
+
+          {/* Share PDF Button (iOS native Share Sheet support) */}
+          <button
+            onClick={sharePDF}
+            disabled={pdfGenerating || loading}
+            className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs rounded-2xl shadow-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Share PDF report via WhatsApp / iOS Share Sheet"
+          >
+            <Share2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Share PDF</span>
+          </button>
+
+          {/* Export Excel / CSV Button */}
+          <button
+            onClick={exportToExcel}
+            disabled={loading}
+            className="inline-flex items-center justify-center gap-2 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-2xl shadow-sm transition-all active:scale-95"
+            title="Export to Excel Spreadsheet"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span className="hidden md:inline">Excel</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs Bar */}
@@ -264,12 +391,12 @@ export default function ReportsPage() {
                     <td className="p-3 font-bold text-foreground">
                       {row.name}
                       <span className="block text-[10px] text-muted-foreground font-normal">
-                        {row.studentId} • Class {row.class}
+                        {row.studentId} • {row.class}
                       </span>
                     </td>
                     <td className="p-3">
-                      <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 font-bold">
-                        {row.batch}
+                      <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 font-bold whitespace-nowrap">
+                        {row.batch === "5-7" ? "5–7 Batch" : row.batch === "7-9" ? "7–9 Batch" : row.batch}
                       </span>
                     </td>
                     <td className="p-3 text-center font-bold">{row.conducted}</td>
@@ -371,12 +498,12 @@ export default function ReportsPage() {
                       <td className="p-3 font-bold text-foreground">
                         {st.name}
                         <span className="block text-[10px] text-muted-foreground font-normal">
-                          {st.studentId} • Class {st.class}
+                          {st.studentId} • {st.class}
                         </span>
                       </td>
                       <td className="p-3">
-                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 font-bold">
-                          {st.batch}
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 font-bold whitespace-nowrap">
+                          {st.batch === "5-7" ? "5–7 Batch" : st.batch === "7-9" ? "7–9 Batch" : st.batch}
                         </span>
                       </td>
                       <td className="p-3 text-center font-bold">{st.totalConducted}</td>
